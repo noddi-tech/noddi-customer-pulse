@@ -15,17 +15,49 @@ serve(async (req) => {
 
   try {
     console.log(`Testing connection to: ${API}`);
-    const r = await fetch(`${API}/v1/health/`, { 
-      headers: { Authorization: `Api-Key ${KEY}` } 
-    }).catch(() => null);
     
-    const ok = !!r && r.ok;
-    const status = r?.status ?? 0;
+    // Try multiple common health/test endpoints
+    const endpoints = [
+      '/v1/health/',
+      '/health/',
+      '/v1/health',
+      '/health',
+      '/api/v1/health',
+      '/v1/users/',  // Try a basic list endpoint
+    ];
     
-    console.log(`Connection test result: ${ok ? 'SUCCESS' : 'FAILED'} (status: ${status})`);
+    let lastResponse = null;
+    let lastStatus = 0;
     
+    for (const endpoint of endpoints) {
+      const url = `${API}${endpoint}`;
+      console.log(`Trying endpoint: ${url}`);
+      
+      const r = await fetch(url, { 
+        headers: { Authorization: `Api-Key ${KEY}` } 
+      }).catch(() => null);
+      
+      lastResponse = r;
+      lastStatus = r?.status ?? 0;
+      
+      console.log(`Endpoint ${endpoint} returned status: ${lastStatus}`);
+      
+      if (r && r.ok) {
+        console.log(`Connection test SUCCESS with endpoint: ${endpoint}`);
+        return new Response(
+          JSON.stringify({ ok: true, status: lastStatus, endpoint }), 
+          { headers: { ...corsHeaders, "content-type": "application/json" } }
+        );
+      }
+    }
+    
+    console.log(`All endpoints failed. Last status: ${lastStatus}`);
     return new Response(
-      JSON.stringify({ ok, status }), 
+      JSON.stringify({ 
+        ok: false, 
+        status: lastStatus,
+        message: 'All test endpoints returned errors. Please check API documentation for correct endpoint.'
+      }), 
       { headers: { ...corsHeaders, "content-type": "application/json" } }
     );
   } catch (error) {
