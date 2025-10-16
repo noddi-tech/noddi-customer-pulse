@@ -162,7 +162,7 @@ Deno.serve(async (req) => {
     let usersFetched = 0;
     console.log(`Syncing customers since: ${sinceUsers ?? 'beginning'}`);
     
-    for await (const page of paged("/v1/users/", sinceUsers ? { updated_since: sinceUsers } : {})) {
+    for await (const page of paged("/v1/users/", {})) {
       const results = page.results ?? page;
       await upsertCustomers(results);
       usersFetched += results.length ?? 0;
@@ -183,7 +183,7 @@ Deno.serve(async (req) => {
     let bookingsFetched = 0;
     console.log(`Syncing bookings since: ${sinceBookings ?? 'beginning'}`);
     
-    for await (const page of paged("/v1/bookings/", sinceBookings ? { updated_since: sinceBookings } : {})) {
+    for await (const page of paged("/v1/bookings/", {})) {
       const rows = page.results ?? page;
       await upsertBookings(rows);
       bookingsFetched += rows.length ?? 0;
