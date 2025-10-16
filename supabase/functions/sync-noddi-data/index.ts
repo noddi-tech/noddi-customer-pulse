@@ -21,15 +21,13 @@ const sb = createClient(
 const API = Deno.env.get("NODDI_API_BASE_URL")!;
 const KEY = Deno.env.get("NODDI_API_KEY")!;
 
-const MAX_PAGES_PER_RESOURCE = 5; // Process max 5 pages per sync run to avoid timeouts
-
-async function getHWM(resource: string) {
+async function getState(resource: string) {
   const { data } = await sb
     .from("sync_state")
-    .select("high_watermark")
+    .select("high_watermark, max_id_seen, rows_fetched, sync_mode")
     .eq("resource", resource)
     .maybeSingle();
-  return data?.high_watermark ?? null;
+  return data ?? { high_watermark: null, max_id_seen: 0, rows_fetched: 0, sync_mode: 'initial' };
 }
 
 async function setState(resource: string, patch: Record<string, any>) {
@@ -40,21 +38,17 @@ async function setState(resource: string, patch: Record<string, any>) {
   });
 }
 
-async function* paged(path: string, params: Record<string, string | number | undefined>, updatedSince?: string | null) {
+async function* paged(path: string, params: Record<string, string | number | undefined>, maxPages: number, knownMaxId: number) {
   const baseUrl = API.replace(/\/+$/, "");
   let page_index = Number(params?.page_index ?? 0);
   const page_size = Number(params?.page_size ?? 50);
+  let pagesProcessed = 0;
   
   for (;;) {
     const queryParams: Record<string, string> = {
       page_index: String(page_index),
       page_size: String(page_size),
     };
-    
-    // Add incremental filter if watermark exists
-    if (updatedSince) {
-      queryParams.updated_at__gte = updatedSince;
-    }
     
     const url = `${baseUrl}${path}?${new URLSearchParams(queryParams)}`;
     console.log(`[sync] GET ${url}`);
@@ -78,8 +72,26 @@ async function* paged(path: string, params: Record<string, string | number | und
     const data: any = await res.json();
     const rows = Array.isArray(data?.results) ? data.results : Array.isArray(data) ? data : [];
     if (!rows.length) break;
-    yield { rows, page_index };
+    
+    // In incremental mode, check if we've seen new IDs
+    const maxIdInPage = rows.length > 0 ? Math.max(...rows.map((r: any) => r.id)) : 0;
+    const hasNewRecords = maxIdInPage > knownMaxId;
+    
+    yield { rows, page_index, maxIdInPage, hasNewRecords };
     page_index++;
+    pagesProcessed++;
+    
+    // Stop early if page limit reached
+    if (pagesProcessed >= maxPages) {
+      console.log(`[sync] Reached page limit (${maxPages})`);
+      break;
+    }
+    
+    // In incremental mode, stop if no new records found
+    if (knownMaxId > 0 && !hasNewRecords) {
+      console.log(`[sync] No new records found (max ID ${maxIdInPage} <= known ${knownMaxId}), stopping`);
+      break;
+    }
   }
 }
 
@@ -149,76 +161,100 @@ Deno.serve(async (req) => {
   try {
     console.log("Starting sync...");
     
-    // Determine sync mode based on high_watermark
-    const sinceUsers = await getHWM("customers");
-    const sinceBookings = await getHWM("bookings");
+    // Get current sync state
+    const customersState = await getState("customers");
+    const bookingsState = await getState("bookings");
     
-    const customersSyncMode = sinceUsers ? 'incremental' : 'initial';
-    const bookingsSyncMode = sinceBookings ? 'incremental' : 'initial';
+    // Determine sync mode and dynamic page limits
+    const customersSyncMode = customersState.sync_mode || 'initial';
+    const bookingsSyncMode = bookingsState.sync_mode || 'initial';
     
-    console.log(`[sync] Customers mode: ${customersSyncMode}, Bookings mode: ${bookingsSyncMode}`);
+    // Smart page limits based on mode and progress
+    let customersMaxPages = 3; // Default for incremental
+    let bookingsMaxPages = 3;
+    
+    if (customersSyncMode === 'initial') {
+      customersMaxPages = customersState.rows_fetched < 500 ? 10 : 5; // Fast initial, then backfill
+    }
+    if (bookingsSyncMode === 'initial') {
+      bookingsMaxPages = bookingsState.rows_fetched < 500 ? 10 : 5;
+    }
+    
+    console.log(`[sync] Customers: ${customersSyncMode} mode, max ${customersMaxPages} pages, known max_id=${customersState.max_id_seen}`);
+    console.log(`[sync] Bookings: ${bookingsSyncMode} mode, max ${bookingsMaxPages} pages, known max_id=${bookingsState.max_id_seen}`);
     
     // Reset sync state for current run
-    await setState("customers", { status: "running", rows_fetched: 0, error_message: null, sync_mode: customersSyncMode });
-    await setState("bookings", { status: "running", rows_fetched: 0, error_message: null, sync_mode: bookingsSyncMode });
+    await setState("customers", { status: "running", error_message: null });
+    await setState("bookings", { status: "running", error_message: null });
 
     // CUSTOMERS
     let usersFetched = 0;
     let customerPages = 0;
-    console.log(`Syncing customers since: ${sinceUsers ?? 'beginning'}`);
+    let customersMaxIdSeen = customersState.max_id_seen || 0;
+    let customersFoundNew = false;
     
-    for await (const { rows, page_index } of paged("/v1/users/", { page_index: 0, page_size: 50 }, sinceUsers)) {
+    for await (const { rows, page_index, maxIdInPage, hasNewRecords } of paged(
+      "/v1/users/", 
+      { page_index: 0, page_size: 50 }, 
+      customersMaxPages,
+      customersState.max_id_seen || 0
+    )) {
       if (customerPages === 0 && rows.length > 0) {
         console.log("[sync] sample customer:", JSON.stringify(rows[0], null, 2));
       }
       
+      if (hasNewRecords) customersFoundNew = true;
+      
       await upsertCustomers(rows);
       usersFetched += rows.length;
       customerPages++;
+      customersMaxIdSeen = Math.max(customersMaxIdSeen, maxIdInPage);
       
       const maxUpdated = rows.reduce(
         (m: string, r: any) => (r.updated_at > m ? r.updated_at : m), 
-        sinceUsers ?? "1970-01-01"
+        customersState.high_watermark ?? "1970-01-01"
       );
       
       // Calculate progress for initial sync (estimate 20k total)
-      const progress = customersSyncMode === 'initial' ? (usersFetched / 20000) * 100 : null;
+      const progress = customersSyncMode === 'initial' ? Math.min((usersFetched / 20000) * 100, 99) : null;
       
       await setState("customers", { 
         high_watermark: maxUpdated, 
-        rows_fetched: usersFetched,
-        error_message: null,
-        sync_mode: customersSyncMode,
+        max_id_seen: customersMaxIdSeen,
+        rows_fetched: (customersState.rows_fetched || 0) + rows.length,
         progress_percentage: progress
       });
       
-      console.log(`[sync] customers page done: ${page_index}, rows=${rows.length}`);
-      
-      if (customerPages >= MAX_PAGES_PER_RESOURCE) {
-        console.log(`Reached page limit for customers (${MAX_PAGES_PER_RESOURCE} pages)`);
-        break;
-      }
+      console.log(`[sync] customers page ${page_index}: ${rows.length} rows, max_id=${maxIdInPage}, new=${hasNewRecords}`);
     }
     console.log(`Synced ${usersFetched} customers across ${customerPages} pages`);
     
-    // Mark customers sync as completed if no more pages
-    const customersStatus = customerPages >= MAX_PAGES_PER_RESOURCE ? 'running' : 'completed';
+    // Switch to incremental if we hit empty page or no new records in incremental mode
+    const customersCompleted = customerPages < customersMaxPages || (customersSyncMode === 'incremental' && !customersFoundNew);
+    const newCustomersMode = customersCompleted && customersSyncMode === 'initial' ? 'incremental' : customersSyncMode;
+    
     await setState("customers", { 
-      status: customersStatus, 
-      rows_fetched: usersFetched,
-      error_message: null,
-      sync_mode: customersSyncMode
+      status: customersCompleted ? 'completed' : 'running',
+      sync_mode: newCustomersMode
     });
 
     // BOOKINGS
     let bookingsFetched = 0;
     let bookingPages = 0;
-    console.log(`Syncing bookings since: ${sinceBookings ?? 'beginning'}`);
+    let bookingsMaxIdSeen = bookingsState.max_id_seen || 0;
+    let bookingsFoundNew = false;
     
-    for await (const { rows, page_index } of paged("/v1/bookings/", { page_index: 0, page_size: 50 }, sinceBookings)) {
+    for await (const { rows, page_index, maxIdInPage, hasNewRecords } of paged(
+      "/v1/bookings/", 
+      { page_index: 0, page_size: 50 },
+      bookingsMaxPages,
+      bookingsState.max_id_seen || 0
+    )) {
       if (bookingPages === 0 && rows.length > 0) {
         console.log("[sync] sample booking:", JSON.stringify(rows[0], null, 2));
       }
+      
+      if (hasNewRecords) bookingsFoundNew = true;
       
       await upsertBookings(rows);
       bookingsFetched += rows.length;
@@ -232,39 +268,34 @@ Deno.serve(async (req) => {
       }
       
       bookingPages++;
+      bookingsMaxIdSeen = Math.max(bookingsMaxIdSeen, maxIdInPage);
       
       const maxUpdated = rows.reduce(
         (m: string, r: any) => (r.updated_at > m ? r.updated_at : m), 
-        sinceBookings ?? "1970-01-01"
+        bookingsState.high_watermark ?? "1970-01-01"
       );
       
       // Calculate progress for initial sync (estimate 20k total)
-      const progress = bookingsSyncMode === 'initial' ? (bookingsFetched / 20000) * 100 : null;
+      const progress = bookingsSyncMode === 'initial' ? Math.min((bookingsFetched / 20000) * 100, 99) : null;
       
       await setState("bookings", { 
-        high_watermark: maxUpdated, 
-        rows_fetched: bookingsFetched,
-        error_message: null,
-        sync_mode: bookingsSyncMode,
+        high_watermark: maxUpdated,
+        max_id_seen: bookingsMaxIdSeen,
+        rows_fetched: (bookingsState.rows_fetched || 0) + rows.length,
         progress_percentage: progress
       });
       
-      console.log(`[sync] bookings page done: ${page_index}, rows=${rows.length}`);
-      
-      if (bookingPages >= MAX_PAGES_PER_RESOURCE) {
-        console.log(`Reached page limit for bookings (${MAX_PAGES_PER_RESOURCE} pages)`);
-        break;
-      }
+      console.log(`[sync] bookings page ${page_index}: ${rows.length} rows, max_id=${maxIdInPage}, new=${hasNewRecords}`);
     }
     console.log(`Synced ${bookingsFetched} bookings across ${bookingPages} pages`);
     
-    // Mark bookings sync as completed if no more pages
-    const bookingsStatus = bookingPages >= MAX_PAGES_PER_RESOURCE ? 'running' : 'completed';
+    // Switch to incremental if we hit empty page or no new records in incremental mode
+    const bookingsCompleted = bookingPages < bookingsMaxPages || (bookingsSyncMode === 'incremental' && !bookingsFoundNew);
+    const newBookingsMode = bookingsCompleted && bookingsSyncMode === 'initial' ? 'incremental' : bookingsSyncMode;
+    
     await setState("bookings", { 
-      status: bookingsStatus, 
-      rows_fetched: bookingsFetched,
-      error_message: null,
-      sync_mode: bookingsSyncMode
+      status: bookingsCompleted ? 'completed' : 'running',
+      sync_mode: newBookingsMode
     });
 
     return new Response(
@@ -272,10 +303,10 @@ Deno.serve(async (req) => {
         ok: true, 
         usersFetched, 
         bookingsFetched,
-        customersMode: customersSyncMode,
-        bookingsMode: bookingsSyncMode,
-        customersComplete: customersStatus === 'completed',
-        bookingsComplete: bookingsStatus === 'completed'
+        customersMode: newCustomersMode,
+        bookingsMode: newBookingsMode,
+        customersComplete: customersCompleted,
+        bookingsComplete: bookingsCompleted
       }), 
       { headers: { ...corsHeaders, "content-type": "application/json" } }
     );

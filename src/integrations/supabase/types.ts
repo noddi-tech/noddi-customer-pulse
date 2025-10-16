@@ -293,6 +293,7 @@ export type Database = {
           estimated_completion_at: string | null
           high_watermark: string | null
           last_run_at: string | null
+          max_id_seen: number | null
           progress_percentage: number | null
           resource: string
           rows_fetched: number | null
@@ -306,6 +307,7 @@ export type Database = {
           estimated_completion_at?: string | null
           high_watermark?: string | null
           last_run_at?: string | null
+          max_id_seen?: number | null
           progress_percentage?: number | null
           resource: string
           rows_fetched?: number | null
@@ -319,6 +321,7 @@ export type Database = {
           estimated_completion_at?: string | null
           high_watermark?: string | null
           last_run_at?: string | null
+          max_id_seen?: number | null
           progress_percentage?: number | null
           resource?: string
           rows_fetched?: number | null
