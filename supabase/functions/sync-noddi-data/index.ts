@@ -181,8 +181,10 @@ Deno.serve(async (req) => {
 
   try {
     console.log("Starting sync...");
-    await setState("customers", { status: "running" });
-    await setState("bookings", { status: "running" });
+    
+    // Reset sync state for current run
+    await setState("customers", { status: "running", rows_fetched: 0, error_message: null });
+    await setState("bookings", { status: "running", rows_fetched: 0, error_message: null });
 
     // CUSTOMERS
     const sinceUsers = await getHWM("customers");
@@ -202,9 +204,8 @@ Deno.serve(async (req) => {
       );
       await setState("customers", { 
         high_watermark: maxUpdated, 
-        rows_fetched: usersFetched, 
-        status: "ok",
-        pages_processed: customerPages
+        rows_fetched: usersFetched,
+        error_message: null
       });
       
       if (customerPages >= MAX_PAGES_PER_RESOURCE) {
@@ -213,6 +214,13 @@ Deno.serve(async (req) => {
       }
     }
     console.log(`Synced ${usersFetched} customers across ${customerPages} pages`);
+    
+    // Mark customers sync as completed
+    await setState("customers", { 
+      status: "completed", 
+      rows_fetched: usersFetched,
+      error_message: null
+    });
 
     // BOOKINGS
     const sinceBookings = await getHWM("bookings");
@@ -240,9 +248,8 @@ Deno.serve(async (req) => {
       );
       await setState("bookings", { 
         high_watermark: maxUpdated, 
-        rows_fetched: bookingsFetched, 
-        status: "ok",
-        pages_processed: bookingPages
+        rows_fetched: bookingsFetched,
+        error_message: null
       });
       
       if (bookingPages >= MAX_PAGES_PER_RESOURCE) {
@@ -251,6 +258,13 @@ Deno.serve(async (req) => {
       }
     }
     console.log(`Synced ${bookingsFetched} bookings across ${bookingPages} pages`);
+    
+    // Mark bookings sync as completed
+    await setState("bookings", { 
+      status: "completed", 
+      rows_fetched: bookingsFetched,
+      error_message: null
+    });
 
     return new Response(
       JSON.stringify({ ok: true, usersFetched, bookingsFetched }), 
