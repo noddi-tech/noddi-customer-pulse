@@ -40,59 +40,39 @@ async function setState(resource: string, patch: Record<string, any>) {
   });
 }
 
-async function* paged(path: string, params: Record<string, any>) {
-  const baseUrl = API.replace(/\/+$/, ""); // Remove trailing slashes
-  const searchParams = new URLSearchParams({ ...params, page_size: "50" } as any);
-  let next: string | null = `${baseUrl}${path}?${searchParams}`;
-  let pageNumber = 1;
+async function* paged(path: string, params: Record<string, string | number | undefined>) {
+  const baseUrl = API.replace(/\/+$/, "");
+  let page_index = Number(params?.page_index ?? 0);
+  const page_size = Number(params?.page_size ?? 50);
   
-  while (next) {
-    console.log(`Fetching page ${pageNumber}: ${next}`);
-    try {
-      const res: Response = await fetch(next, { 
-        headers: { 
-          Accept: "application/json",
-          Authorization: `Api-Key ${KEY}` 
-        } 
-      });
-      
-      if (!res.ok) {
-        const text = await res.text();
-        
-        // Handle 404 "Invalid page" gracefully (end of pagination)
-        if (res.status === 404 && text.includes("Invalid page")) {
-          console.log(`Reached end of pagination at page ${pageNumber}`);
-          break;
-        }
-        
-        // Fail soft on 500/502/503 errors - log and continue
-        if (res.status >= 500) {
-          console.warn(`[sync] Page ${pageNumber} -> ${res.status}, skipping this page`);
-          // Try to get next URL from error body if available
-          try {
-            const errorBody = JSON.parse(text);
-            next = errorBody?.next ?? null;
-          } catch {
-            next = null; // Can't parse, stop pagination
-          }
-          pageNumber++;
-          continue; // Skip this page, move to next
-        }
-        
-        // Other errors are fatal
-        console.error(`Fetch failed [${res.status}] ${res.statusText}: ${text.slice(0, 500)}`);
-        throw new Error(`Fetch failed ${res.status}: ${text}`);
+  for (;;) {
+    const url = `${baseUrl}${path}?${new URLSearchParams({
+      page_index: String(page_index),
+      page_size: String(page_size),
+    })}`;
+    console.log(`[sync] GET ${url}`);
+    
+    const res = await fetch(url, {
+      headers: { Accept: "application/json", Authorization: `Api-Key ${KEY}` },
+    });
+    
+    if (!res.ok) {
+      const body = await res.text();
+      // Fail-soft on server errors; stop gracefully on invalid page
+      if (res.status >= 500) {
+        console.warn(`[sync] page ${page_index} -> ${res.status}; skipping this page`);
+        page_index++; // skip ahead
+        continue;
       }
-      
-      const body: any = await res.json();
-      yield body;
-      next = body?.next ?? null;
-      pageNumber++;
-    } catch (error) {
-      // Network errors - log and stop
-      console.error(`Network error on page ${pageNumber}:`, error);
-      break;
+      if (res.status === 404 && /Invalid page/i.test(body)) break;
+      throw new Error(`Fetch failed ${res.status}: ${body.slice(0, 500)}`);
     }
+    
+    const data: any = await res.json();
+    const rows = Array.isArray(data?.results) ? data.results : Array.isArray(data) ? data : [];
+    if (!rows.length) break;
+    yield { rows, page_index };
+    page_index++;
   }
 }
 
@@ -117,8 +97,9 @@ async function upsertBookings(rows: any[]) {
   if (!rows.length) return;
   const mapped = rows.map((b) => ({
     id: b.id,
-    user_id: b.user?.id ?? b.user_id,
-    user_group_id: b.user_group?.id ?? b.user_group_id ?? null,
+    // Noddi list returns user_id flat; handle string|number safely
+    user_id: b.user_id != null ? (typeof b.user_id === 'string' ? parseInt(b.user_id, 10) : b.user_id) : null,
+    user_group_id: b.user_group_id ?? null,
     date: b.date ?? null,
     started_at: b.started_at ?? null,
     completed_at: b.completed_at ?? null,
@@ -152,27 +133,6 @@ async function upsertOrderLines(bookingId: number, lines: any[]) {
   if (error) console.error("Error upserting order lines:", error);
 }
 
-async function enrichAndPersistBooking(bookingId: number) {
-  try {
-    const baseUrl = API.replace(/\/+$/, ""); // Remove trailing slashes
-    const res = await fetch(`${baseUrl}/v1/bookings/${bookingId}/`, { 
-      headers: { 
-        Accept: "application/json",
-        Authorization: `Api-Key ${KEY}` 
-      } 
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      console.error(`Failed to enrich booking ${bookingId} [${res.status}]: ${text.slice(0, 300)}`);
-      return;
-    }
-    const detail = await res.json();
-    const lines = detail?.order?.order_lines ?? detail?.order_lines ?? detail?.lines ?? [];
-    await upsertOrderLines(bookingId, lines);
-  } catch (error) {
-    console.error(`Error enriching booking ${bookingId}:`, error);
-  }
-}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -192,13 +152,16 @@ Deno.serve(async (req) => {
     let customerPages = 0;
     console.log(`Syncing customers since: ${sinceUsers ?? 'beginning'}`);
     
-    for await (const page of paged("/v1/users/", {})) {
-      const results = page.results ?? page ?? [];
-      await upsertCustomers(results);
-      usersFetched += results.length;
+    for await (const { rows, page_index } of paged("/v1/users/", { page_index: 0, page_size: 50 })) {
+      if (customerPages === 0 && rows.length > 0) {
+        console.log("[sync] sample customer:", JSON.stringify(rows[0], null, 2));
+      }
+      
+      await upsertCustomers(rows);
+      usersFetched += rows.length;
       customerPages++;
       
-      const maxUpdated = results.reduce(
+      const maxUpdated = rows.reduce(
         (m: string, r: any) => (r.updated_at > m ? r.updated_at : m), 
         sinceUsers ?? "1970-01-01"
       );
@@ -207,6 +170,8 @@ Deno.serve(async (req) => {
         rows_fetched: usersFetched,
         error_message: null
       });
+      
+      console.log(`[sync] customers page done: ${page_index}, rows=${rows.length}`);
       
       if (customerPages >= MAX_PAGES_PER_RESOURCE) {
         console.log(`Reached page limit for customers (${MAX_PAGES_PER_RESOURCE} pages)`);
@@ -228,19 +193,23 @@ Deno.serve(async (req) => {
     let bookingPages = 0;
     console.log(`Syncing bookings since: ${sinceBookings ?? 'beginning'}`);
     
-    for await (const page of paged("/v1/bookings/", {})) {
-      const rows = page.results ?? page ?? [];
+    for await (const { rows, page_index } of paged("/v1/bookings/", { page_index: 0, page_size: 50 })) {
+      if (bookingPages === 0 && rows.length > 0) {
+        console.log("[sync] sample booking:", JSON.stringify(rows[0], null, 2));
+      }
+      
       await upsertBookings(rows);
       bookingsFetched += rows.length;
-      bookingPages++;
       
-      // Extract order lines from the list response (if available)
-      for (const booking of rows) {
-        const lines = booking?.order?.order_lines ?? booking?.order_lines ?? [];
+      // Persist order lines directly from the list payload (if present)
+      for (const b of rows) {
+        const lines = b?.order?.order_lines ?? b?.order_lines ?? [];
         if (Array.isArray(lines) && lines.length > 0) {
-          await upsertOrderLines(booking.id, lines);
+          await upsertOrderLines(b.id, lines);
         }
       }
+      
+      bookingPages++;
       
       const maxUpdated = rows.reduce(
         (m: string, r: any) => (r.updated_at > m ? r.updated_at : m), 
@@ -251,6 +220,8 @@ Deno.serve(async (req) => {
         rows_fetched: bookingsFetched,
         error_message: null
       });
+      
+      console.log(`[sync] bookings page done: ${page_index}, rows=${rows.length}`);
       
       if (bookingPages >= MAX_PAGES_PER_RESOURCE) {
         console.log(`Reached page limit for bookings (${MAX_PAGES_PER_RESOURCE} pages)`);

@@ -66,21 +66,16 @@ serve(async (req) => {
     const th = (s?.value || {}) as Thresholds;
     console.log("Thresholds:", th);
 
-    // Pull customers to recompute
-    const { data: users } = await sb.from("customers").select("id, user_group_id");
     const now = new Date();
-    console.log(`Computing segments for ${users?.length ?? 0} customers`);
-
+    
     // Preload storage flags
     const { data: storage } = await sb.from("storage_status").select("user_group_id, is_active, ended_at");
     const storageMap = new Map<number, { active: boolean; ended_at: string | null }>();
     (storage || []).forEach((r: any) => storageMap.set(r.user_group_id, { active: r.is_active, ended_at: r.ended_at }));
 
-    // Compute features in batches
-    const BATCH = 400;
-    for (let i = 0; i < (users?.length ?? 0); i += BATCH) {
-      const slice = users!.slice(i, i + BATCH);
-      const ids = slice.map((u) => u.id);
+    // Helper function to process a batch of customer IDs
+    async function processCustomerBatch(customerIds: number[], userGroupMap: Map<number, number>) {
+      const ids = customerIds;
 
       // Fetch bookings & order_lines within last 24 months
       const { data: bk } = await sb
@@ -166,7 +161,7 @@ serve(async (req) => {
         const recencyDays = lastBookingAt ? Math.floor((now.getTime() - lastBookingAt.getTime()) / 86400000) : null;
 
         // Storage logic
-        const st = storageMap.get((users!.find((u) => u.id === uid)!.user_group_id)) ?? { active: false, ended_at: null };
+        const st = storageMap.get(userGroupMap.get(uid)!) ?? { active: false, ended_at: null };
         const storageActive = !!st.active;
 
         // Lifecycle
@@ -219,8 +214,36 @@ serve(async (req) => {
 
       await sb.from("features").upsert(feats, { onConflict: "user_id" });
       await sb.from("segments").upsert(segs, { onConflict: "user_id" });
-      console.log(`Processed batch ${i / BATCH + 1}`);
     }
+
+    // Page through every customer id deterministically
+    const BATCH = 1000;
+    let lastId = 0;
+    let totalProcessed = 0;
+    
+    for (;;) {
+      const { data: batch, error } = await sb
+        .from("customers")
+        .select("id, user_group_id")
+        .gt("id", lastId)
+        .order("id")
+        .limit(BATCH);
+        
+      if (error) throw error;
+      if (!batch || batch.length === 0) break;
+      
+      // Create user_group_id map for this batch
+      const userGroupMap = new Map<number, number>();
+      batch.forEach((u) => userGroupMap.set(u.id, u.user_group_id));
+      
+      await processCustomerBatch(batch.map(r => r.id), userGroupMap);
+      
+      totalProcessed += batch.length;
+      lastId = batch[batch.length - 1].id;
+      console.log(`Processed ${totalProcessed} customers (last_id: ${lastId})`);
+    }
+    
+    console.log(`Total customers processed: ${totalProcessed}`)
 
     // Value tiers: compute percentiles on margin_24m
     const { data: margins } = await sb.from("features").select("user_id, margin_24m");
@@ -245,7 +268,7 @@ serve(async (req) => {
     console.log(`Computed value tiers for ${updates.length} customers`);
 
     return new Response(
-      JSON.stringify({ ok: true, users: users?.length ?? 0 }), 
+      JSON.stringify({ ok: true, users: totalProcessed }), 
       { headers: { ...corsHeaders, "content-type": "application/json" } }
     );
   } catch (e) {
