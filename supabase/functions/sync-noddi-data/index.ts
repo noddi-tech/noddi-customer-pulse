@@ -53,6 +53,13 @@ async function* paged(path: string, params: Record<string, any>) {
     });
     if (!res.ok) {
       const text = await res.text();
+      
+      // Handle 404 "Invalid page" gracefully (common pagination issue)
+      if (res.status === 404 && text.includes("Invalid page")) {
+        console.log(`Reached end of pagination (404 on ${next})`);
+        break; // Stop pagination, don't throw error
+      }
+      
       console.error(`Fetch failed [${res.status}] ${res.statusText}: ${text.slice(0, 500)}`);
       throw new Error(`Fetch failed ${res.status}: ${text}`);
     }
