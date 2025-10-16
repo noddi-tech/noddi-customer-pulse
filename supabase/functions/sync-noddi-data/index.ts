@@ -21,6 +21,8 @@ const sb = createClient(
 const API = Deno.env.get("NODDI_API_BASE_URL")!;
 const KEY = Deno.env.get("NODDI_API_KEY")!;
 
+const MAX_PAGES_PER_RESOURCE = 5; // Process max 5 pages per sync run to avoid timeouts
+
 async function getHWM(resource: string) {
   const { data } = await sb
     .from("sync_state")
@@ -40,32 +42,57 @@ async function setState(resource: string, patch: Record<string, any>) {
 
 async function* paged(path: string, params: Record<string, any>) {
   const baseUrl = API.replace(/\/+$/, ""); // Remove trailing slashes
-  // Limit page size to reduce memory usage
   const searchParams = new URLSearchParams({ ...params, page_size: "50" } as any);
   let next: string | null = `${baseUrl}${path}?${searchParams}`;
+  let pageNumber = 1;
+  
   while (next) {
-    console.log(`Fetching: ${next}`);
-    const res: Response = await fetch(next, { 
-      headers: { 
-        Accept: "application/json",
-        Authorization: `Api-Key ${KEY}` 
-      } 
-    });
-    if (!res.ok) {
-      const text = await res.text();
+    console.log(`Fetching page ${pageNumber}: ${next}`);
+    try {
+      const res: Response = await fetch(next, { 
+        headers: { 
+          Accept: "application/json",
+          Authorization: `Api-Key ${KEY}` 
+        } 
+      });
       
-      // Handle 404 "Invalid page" gracefully (common pagination issue)
-      if (res.status === 404 && text.includes("Invalid page")) {
-        console.log(`Reached end of pagination (404 on ${next})`);
-        break; // Stop pagination, don't throw error
+      if (!res.ok) {
+        const text = await res.text();
+        
+        // Handle 404 "Invalid page" gracefully (end of pagination)
+        if (res.status === 404 && text.includes("Invalid page")) {
+          console.log(`Reached end of pagination at page ${pageNumber}`);
+          break;
+        }
+        
+        // Fail soft on 500/502/503 errors - log and continue
+        if (res.status >= 500) {
+          console.warn(`[sync] Page ${pageNumber} -> ${res.status}, skipping this page`);
+          // Try to get next URL from error body if available
+          try {
+            const errorBody = JSON.parse(text);
+            next = errorBody?.next ?? null;
+          } catch {
+            next = null; // Can't parse, stop pagination
+          }
+          pageNumber++;
+          continue; // Skip this page, move to next
+        }
+        
+        // Other errors are fatal
+        console.error(`Fetch failed [${res.status}] ${res.statusText}: ${text.slice(0, 500)}`);
+        throw new Error(`Fetch failed ${res.status}: ${text}`);
       }
       
-      console.error(`Fetch failed [${res.status}] ${res.statusText}: ${text.slice(0, 500)}`);
-      throw new Error(`Fetch failed ${res.status}: ${text}`);
+      const body: any = await res.json();
+      yield body;
+      next = body?.next ?? null;
+      pageNumber++;
+    } catch (error) {
+      // Network errors - log and stop
+      console.error(`Network error on page ${pageNumber}:`, error);
+      break;
     }
-    const body: any = await res.json();
-    yield body;
-    next = body?.next ?? null;
   }
 }
 
@@ -160,12 +187,15 @@ Deno.serve(async (req) => {
     // CUSTOMERS
     const sinceUsers = await getHWM("customers");
     let usersFetched = 0;
+    let customerPages = 0;
     console.log(`Syncing customers since: ${sinceUsers ?? 'beginning'}`);
     
     for await (const page of paged("/v1/users/", {})) {
-      const results = page.results ?? page;
+      const results = page.results ?? page ?? [];
       await upsertCustomers(results);
-      usersFetched += results.length ?? 0;
+      usersFetched += results.length;
+      customerPages++;
+      
       const maxUpdated = results.reduce(
         (m: string, r: any) => (r.updated_at > m ? r.updated_at : m), 
         sinceUsers ?? "1970-01-01"
@@ -173,29 +203,35 @@ Deno.serve(async (req) => {
       await setState("customers", { 
         high_watermark: maxUpdated, 
         rows_fetched: usersFetched, 
-        status: "ok" 
+        status: "ok",
+        pages_processed: customerPages
       });
+      
+      if (customerPages >= MAX_PAGES_PER_RESOURCE) {
+        console.log(`Reached page limit for customers (${MAX_PAGES_PER_RESOURCE} pages)`);
+        break;
+      }
     }
-    console.log(`Synced ${usersFetched} customers`);
+    console.log(`Synced ${usersFetched} customers across ${customerPages} pages`);
 
     // BOOKINGS
     const sinceBookings = await getHWM("bookings");
     let bookingsFetched = 0;
+    let bookingPages = 0;
     console.log(`Syncing bookings since: ${sinceBookings ?? 'beginning'}`);
     
     for await (const page of paged("/v1/bookings/", {})) {
-      const rows = page.results ?? page;
+      const rows = page.results ?? page ?? [];
       await upsertBookings(rows);
-      bookingsFetched += rows.length ?? 0;
+      bookingsFetched += rows.length;
+      bookingPages++;
       
-      // Fetch details in smaller batches to reduce memory usage
-      const ids = rows.map((b: any) => b.id).filter(Boolean);
-      const chunks = Array.from(
-        { length: Math.ceil(ids.length / 3) }, 
-        (_, i) => ids.slice(i * 3, i * 3 + 3)
-      );
-      for (const chunk of chunks) {
-        await Promise.all(chunk.map((id: number) => enrichAndPersistBooking(id)));
+      // Extract order lines from the list response (if available)
+      for (const booking of rows) {
+        const lines = booking?.order?.order_lines ?? booking?.order_lines ?? [];
+        if (Array.isArray(lines) && lines.length > 0) {
+          await upsertOrderLines(booking.id, lines);
+        }
       }
       
       const maxUpdated = rows.reduce(
@@ -205,10 +241,16 @@ Deno.serve(async (req) => {
       await setState("bookings", { 
         high_watermark: maxUpdated, 
         rows_fetched: bookingsFetched, 
-        status: "ok" 
+        status: "ok",
+        pages_processed: bookingPages
       });
+      
+      if (bookingPages >= MAX_PAGES_PER_RESOURCE) {
+        console.log(`Reached page limit for bookings (${MAX_PAGES_PER_RESOURCE} pages)`);
+        break;
+      }
     }
-    console.log(`Synced ${bookingsFetched} bookings`);
+    console.log(`Synced ${bookingsFetched} bookings across ${bookingPages} pages`);
 
     return new Response(
       JSON.stringify({ ok: true, usersFetched, bookingsFetched }), 
