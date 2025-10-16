@@ -40,14 +40,19 @@ async function setState(resource: string, patch: Record<string, any>) {
 }
 
 async function* paged(path: string, params: Record<string, any>) {
-  let next: string | null = `${API}${path}?${new URLSearchParams(params as any)}`;
+  const baseUrl = API.replace(/\/+$/, ""); // Remove trailing slashes
+  let next: string | null = `${baseUrl}${path}?${new URLSearchParams(params as any)}`;
   while (next) {
     console.log(`Fetching: ${next}`);
     const res: Response = await fetch(next, { 
-      headers: { Authorization: `Api-Key ${KEY}` } 
+      headers: { 
+        Accept: "application/json",
+        Authorization: `Api-Key ${KEY}` 
+      } 
     });
     if (!res.ok) {
       const text = await res.text();
+      console.error(`Fetch failed [${res.status}] ${res.statusText}: ${text.slice(0, 500)}`);
       throw new Error(`Fetch failed ${res.status}: ${text}`);
     }
     const body: any = await res.json();
@@ -114,10 +119,18 @@ async function upsertOrderLines(bookingId: number, lines: any[]) {
 
 async function enrichAndPersistBooking(bookingId: number) {
   try {
-    const res = await fetch(`${API}/v1/bookings/${bookingId}/`, { 
-      headers: { Authorization: `Api-Key ${KEY}` } 
+    const baseUrl = API.replace(/\/+$/, ""); // Remove trailing slashes
+    const res = await fetch(`${baseUrl}/v1/bookings/${bookingId}/`, { 
+      headers: { 
+        Accept: "application/json",
+        Authorization: `Api-Key ${KEY}` 
+      } 
     });
-    if (!res.ok) return;
+    if (!res.ok) {
+      const text = await res.text();
+      console.error(`Failed to enrich booking ${bookingId} [${res.status}]: ${text.slice(0, 300)}`);
+      return;
+    }
     const detail = await res.json();
     const lines = detail?.order?.order_lines ?? detail?.order_lines ?? detail?.lines ?? [];
     await upsertOrderLines(bookingId, lines);
