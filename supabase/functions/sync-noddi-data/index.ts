@@ -40,7 +40,9 @@ async function setState(resource: string, patch: Record<string, any>) {
 
 async function* paged(path: string, params: Record<string, any>) {
   const baseUrl = API.replace(/\/+$/, ""); // Remove trailing slashes
-  let next: string | null = `${baseUrl}${path}?${new URLSearchParams(params as any)}`;
+  // Limit page size to reduce memory usage
+  const searchParams = new URLSearchParams({ ...params, page_size: "50" } as any);
+  let next: string | null = `${baseUrl}${path}?${searchParams}`;
   while (next) {
     console.log(`Fetching: ${next}`);
     const res: Response = await fetch(next, { 
@@ -179,11 +181,11 @@ Deno.serve(async (req) => {
       await upsertBookings(rows);
       bookingsFetched += rows.length ?? 0;
       
-      // Fetch details in small parallel batches
+      // Fetch details in smaller batches to reduce memory usage
       const ids = rows.map((b: any) => b.id).filter(Boolean);
       const chunks = Array.from(
-        { length: Math.ceil(ids.length / 10) }, 
-        (_, i) => ids.slice(i * 10, i * 10 + 10)
+        { length: Math.ceil(ids.length / 3) }, 
+        (_, i) => ids.slice(i * 3, i * 3 + 3)
       );
       for (const chunk of chunks) {
         await Promise.all(chunk.map((id: number) => enrichAndPersistBooking(id)));
