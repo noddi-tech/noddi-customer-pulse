@@ -40,16 +40,23 @@ async function setState(resource: string, patch: Record<string, any>) {
   });
 }
 
-async function* paged(path: string, params: Record<string, string | number | undefined>) {
+async function* paged(path: string, params: Record<string, string | number | undefined>, updatedSince?: string | null) {
   const baseUrl = API.replace(/\/+$/, "");
   let page_index = Number(params?.page_index ?? 0);
   const page_size = Number(params?.page_size ?? 50);
   
   for (;;) {
-    const url = `${baseUrl}${path}?${new URLSearchParams({
+    const queryParams: Record<string, string> = {
       page_index: String(page_index),
       page_size: String(page_size),
-    })}`;
+    };
+    
+    // Add incremental filter if watermark exists
+    if (updatedSince) {
+      queryParams.updated_at__gte = updatedSince;
+    }
+    
+    const url = `${baseUrl}${path}?${new URLSearchParams(queryParams)}`;
     console.log(`[sync] GET ${url}`);
     
     const res = await fetch(url, {
@@ -142,17 +149,25 @@ Deno.serve(async (req) => {
   try {
     console.log("Starting sync...");
     
+    // Determine sync mode based on high_watermark
+    const sinceUsers = await getHWM("customers");
+    const sinceBookings = await getHWM("bookings");
+    
+    const customersSyncMode = sinceUsers ? 'incremental' : 'initial';
+    const bookingsSyncMode = sinceBookings ? 'incremental' : 'initial';
+    
+    console.log(`[sync] Customers mode: ${customersSyncMode}, Bookings mode: ${bookingsSyncMode}`);
+    
     // Reset sync state for current run
-    await setState("customers", { status: "running", rows_fetched: 0, error_message: null });
-    await setState("bookings", { status: "running", rows_fetched: 0, error_message: null });
+    await setState("customers", { status: "running", rows_fetched: 0, error_message: null, sync_mode: customersSyncMode });
+    await setState("bookings", { status: "running", rows_fetched: 0, error_message: null, sync_mode: bookingsSyncMode });
 
     // CUSTOMERS
-    const sinceUsers = await getHWM("customers");
     let usersFetched = 0;
     let customerPages = 0;
     console.log(`Syncing customers since: ${sinceUsers ?? 'beginning'}`);
     
-    for await (const { rows, page_index } of paged("/v1/users/", { page_index: 0, page_size: 50 })) {
+    for await (const { rows, page_index } of paged("/v1/users/", { page_index: 0, page_size: 50 }, sinceUsers)) {
       if (customerPages === 0 && rows.length > 0) {
         console.log("[sync] sample customer:", JSON.stringify(rows[0], null, 2));
       }
@@ -165,10 +180,16 @@ Deno.serve(async (req) => {
         (m: string, r: any) => (r.updated_at > m ? r.updated_at : m), 
         sinceUsers ?? "1970-01-01"
       );
+      
+      // Calculate progress for initial sync (estimate 20k total)
+      const progress = customersSyncMode === 'initial' ? (usersFetched / 20000) * 100 : null;
+      
       await setState("customers", { 
         high_watermark: maxUpdated, 
         rows_fetched: usersFetched,
-        error_message: null
+        error_message: null,
+        sync_mode: customersSyncMode,
+        progress_percentage: progress
       });
       
       console.log(`[sync] customers page done: ${page_index}, rows=${rows.length}`);
@@ -180,20 +201,21 @@ Deno.serve(async (req) => {
     }
     console.log(`Synced ${usersFetched} customers across ${customerPages} pages`);
     
-    // Mark customers sync as completed
+    // Mark customers sync as completed if no more pages
+    const customersStatus = customerPages >= MAX_PAGES_PER_RESOURCE ? 'running' : 'completed';
     await setState("customers", { 
-      status: "completed", 
+      status: customersStatus, 
       rows_fetched: usersFetched,
-      error_message: null
+      error_message: null,
+      sync_mode: customersSyncMode
     });
 
     // BOOKINGS
-    const sinceBookings = await getHWM("bookings");
     let bookingsFetched = 0;
     let bookingPages = 0;
     console.log(`Syncing bookings since: ${sinceBookings ?? 'beginning'}`);
     
-    for await (const { rows, page_index } of paged("/v1/bookings/", { page_index: 0, page_size: 50 })) {
+    for await (const { rows, page_index } of paged("/v1/bookings/", { page_index: 0, page_size: 50 }, sinceBookings)) {
       if (bookingPages === 0 && rows.length > 0) {
         console.log("[sync] sample booking:", JSON.stringify(rows[0], null, 2));
       }
@@ -215,10 +237,16 @@ Deno.serve(async (req) => {
         (m: string, r: any) => (r.updated_at > m ? r.updated_at : m), 
         sinceBookings ?? "1970-01-01"
       );
+      
+      // Calculate progress for initial sync (estimate 20k total)
+      const progress = bookingsSyncMode === 'initial' ? (bookingsFetched / 20000) * 100 : null;
+      
       await setState("bookings", { 
         high_watermark: maxUpdated, 
         rows_fetched: bookingsFetched,
-        error_message: null
+        error_message: null,
+        sync_mode: bookingsSyncMode,
+        progress_percentage: progress
       });
       
       console.log(`[sync] bookings page done: ${page_index}, rows=${rows.length}`);
@@ -230,15 +258,25 @@ Deno.serve(async (req) => {
     }
     console.log(`Synced ${bookingsFetched} bookings across ${bookingPages} pages`);
     
-    // Mark bookings sync as completed
+    // Mark bookings sync as completed if no more pages
+    const bookingsStatus = bookingPages >= MAX_PAGES_PER_RESOURCE ? 'running' : 'completed';
     await setState("bookings", { 
-      status: "completed", 
+      status: bookingsStatus, 
       rows_fetched: bookingsFetched,
-      error_message: null
+      error_message: null,
+      sync_mode: bookingsSyncMode
     });
 
     return new Response(
-      JSON.stringify({ ok: true, usersFetched, bookingsFetched }), 
+      JSON.stringify({ 
+        ok: true, 
+        usersFetched, 
+        bookingsFetched,
+        customersMode: customersSyncMode,
+        bookingsMode: bookingsSyncMode,
+        customersComplete: customersStatus === 'completed',
+        bookingsComplete: bookingsStatus === 'completed'
+      }), 
       { headers: { ...corsHeaders, "content-type": "application/json" } }
     );
   } catch (e) {

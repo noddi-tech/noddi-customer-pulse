@@ -174,11 +174,11 @@ export function useSyncStatus() {
       const { data } = await supabase
         .from("sync_state")
         .select("*")
-        .order("last_run_at", { ascending: false });
+        .order("resource");
       return data || [];
     },
-    staleTime: 10 * 1000, // 10 seconds (more frequent for sync status)
-    refetchInterval: 10 * 1000,
+    staleTime: 5 * 1000, // 5 seconds during active sync
+    refetchInterval: 5 * 1000, // Poll every 5 seconds to monitor active syncs
   });
 }
 

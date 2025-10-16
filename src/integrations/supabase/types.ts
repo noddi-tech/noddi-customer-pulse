@@ -288,28 +288,43 @@ export type Database = {
       }
       sync_state: {
         Row: {
+          auto_sync_enabled: boolean | null
           error_message: string | null
+          estimated_completion_at: string | null
           high_watermark: string | null
           last_run_at: string | null
+          progress_percentage: number | null
           resource: string
           rows_fetched: number | null
           status: string | null
+          sync_mode: string | null
+          total_records: number | null
         }
         Insert: {
+          auto_sync_enabled?: boolean | null
           error_message?: string | null
+          estimated_completion_at?: string | null
           high_watermark?: string | null
           last_run_at?: string | null
+          progress_percentage?: number | null
           resource: string
           rows_fetched?: number | null
           status?: string | null
+          sync_mode?: string | null
+          total_records?: number | null
         }
         Update: {
+          auto_sync_enabled?: boolean | null
           error_message?: string | null
+          estimated_completion_at?: string | null
           high_watermark?: string | null
           last_run_at?: string | null
+          progress_percentage?: number | null
           resource?: string
           rows_fetched?: number | null
           status?: string | null
+          sync_mode?: string | null
+          total_records?: number | null
         }
         Relationships: []
       }

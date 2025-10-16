@@ -4,13 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Progress } from "@/components/ui/progress";
 import { useSettings } from "@/hooks/segmentation";
 import { useSyncNow, useComputeSegments, useTestConnection } from "@/hooks/edgeFunctions";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useSyncStatus } from "@/hooks/segmentation";
+import { useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { CheckCircle, XCircle, RefreshCw } from "lucide-react";
+import { CheckCircle, XCircle, RefreshCw, Clock } from "lucide-react";
 
 export default function Settings() {
   const { data: thresholds, refetch } = useSettings();
@@ -18,6 +20,7 @@ export default function Settings() {
   const syncMutation = useSyncNow();
   const computeMutation = useComputeSegments();
   const testMutation = useTestConnection();
+  const queryClient = useQueryClient();
 
   const [localThresholds, setLocalThresholds] = useState({
     new_days: 90,
@@ -66,6 +69,25 @@ export default function Settings() {
       await computeMutation.mutateAsync();
     } catch (error) {
       toast.error("Failed to save thresholds");
+    }
+  };
+
+  const handleResetSync = async () => {
+    if (!confirm('This will force a complete re-sync of all data. Continue?')) return;
+    
+    try {
+      await supabase.from('sync_state').update({
+        high_watermark: null,
+        rows_fetched: 0,
+        sync_mode: 'initial',
+        progress_percentage: 0,
+        status: 'pending'
+      }).in('resource', ['customers', 'bookings']);
+      
+      toast.success('Sync reset! Auto-sync will start on next cron run (every 2 min).');
+      queryClient.invalidateQueries({ queryKey: ["sync-status"] });
+    } catch (error) {
+      toast.error('Failed to reset sync');
     }
   };
 
@@ -230,49 +252,106 @@ export default function Settings() {
             <CardHeader>
               <CardTitle>Data Sync</CardTitle>
               <CardDescription>
-                Manage data synchronization with Noddi API
+                Automated sync runs every 2 minutes via cron job
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex gap-4">
-                <Button onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
-                  <RefreshCw className={`mr-2 h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
-                  {syncMutation.isPending ? "Syncing..." : "Sync Now"}
-                </Button>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-5 w-5 text-muted-foreground" />
+                    <div>
+                      <h3 className="text-sm font-medium">Auto-Sync Active</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Runs every 2 minutes until initial sync completes
+                      </p>
+                    </div>
+                  </div>
+                </div>
 
-                <Button variant="outline" onClick={() => computeMutation.mutate()} disabled={computeMutation.isPending}>
-                  {computeMutation.isPending ? "Recomputing..." : "Recompute Segments"}
-                </Button>
-              </div>
+                {syncStatus && syncStatus.length > 0 && (
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-medium">Sync Progress</h3>
+                    {syncStatus.map((status) => (
+                      <div key={status.resource} className="border rounded-lg p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium capitalize">{status.resource}</p>
+                            <p className="text-sm text-muted-foreground">
+                              Mode: <span className="font-mono">{status.sync_mode || 'initial'}</span>
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {status.status === "completed" && <CheckCircle className="h-5 w-5 text-green-500" />}
+                            {status.status === "error" && <XCircle className="h-5 w-5 text-red-500" />}
+                            {status.status === "running" && <RefreshCw className="h-5 w-5 text-blue-500 animate-spin" />}
+                            <span className="text-sm font-medium">{status.status}</span>
+                          </div>
+                        </div>
 
-              {syncStatus && syncStatus.length > 0 && (
-                <div className="space-y-2">
-                  <h3 className="text-sm font-medium">Sync Status</h3>
-                  {syncStatus.map((status) => (
-                    <div key={status.resource} className="flex items-center justify-between border rounded p-3">
-                      <div>
-                        <p className="font-medium">{status.resource}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {status.last_run_at
-                            ? `Last run: ${formatDistanceToNow(new Date(status.last_run_at), { addSuffix: true })}`
-                            : "Never run"}
-                        </p>
-                        {status.rows_fetched && (
-                          <p className="text-xs text-muted-foreground">
-                            Rows fetched: {status.rows_fetched.toLocaleString()}
+                        {status.sync_mode === 'initial' && status.progress_percentage != null && (
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>Progress</span>
+                              <span>{Math.round(status.progress_percentage)}%</span>
+                            </div>
+                            <Progress value={status.progress_percentage} className="h-2" />
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-2 gap-4 text-xs">
+                          <div>
+                            <p className="text-muted-foreground">Records Synced</p>
+                            <p className="font-medium text-base">{status.rows_fetched?.toLocaleString() || 0}</p>
+                          </div>
+                          {status.last_run_at && (
+                            <div>
+                              <p className="text-muted-foreground">Last Run</p>
+                              <p className="font-medium text-sm">
+                                {formatDistanceToNow(new Date(status.last_run_at), { addSuffix: true })}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+
+                        {status.error_message && (
+                          <p className="text-xs text-red-500 bg-red-50 p-2 rounded">
+                            {status.error_message}
                           </p>
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
-                        {status.status === "ok" && <CheckCircle className="h-5 w-5 text-green-500" />}
-                        {status.status === "error" && <XCircle className="h-5 w-5 text-red-500" />}
-                        {status.status === "running" && <RefreshCw className="h-5 w-5 text-yellow-500 animate-spin" />}
-                        <span className="text-sm font-medium">{status.status}</span>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex gap-2 flex-wrap pt-4 border-t">
+                  <Button 
+                    onClick={() => syncMutation.mutate()} 
+                    disabled={syncMutation.isPending}
+                    size="sm"
+                  >
+                    <RefreshCw className={`mr-2 h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+                    Manual Sync Now
+                  </Button>
+
+                  <Button 
+                    variant="outline" 
+                    onClick={() => computeMutation.mutate()} 
+                    disabled={computeMutation.isPending}
+                    size="sm"
+                  >
+                    Recompute Segments
+                  </Button>
+
+                  <Button 
+                    variant="destructive" 
+                    size="sm"
+                    onClick={handleResetSync}
+                  >
+                    Force Full Re-Sync
+                  </Button>
                 </div>
-              )}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
