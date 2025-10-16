@@ -5,66 +5,58 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const API = Deno.env.get("NODDI_API_BASE_URL")!;
-const KEY = Deno.env.get("NODDI_API_KEY")!;
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
-
   try {
-    console.log(`Testing connection to: ${API}`);
-    
-    // Try multiple common health/test endpoints
-    const endpoints = [
-      '/v1/health/',
-      '/health/',
-      '/v1/health',
-      '/health',
-      '/api/v1/health',
-      '/v1/users/',  // Try a basic list endpoint
+    const url = new URL(req.url);
+    const base = Deno.env.get("NODDI_API_BASE_URL") ?? "https://api.noddi.no";
+    const key  = Deno.env.get("NODDI_API_KEY") ?? "";
+    const testEmail = url.searchParams.get("email") ?? "silje@concom.no";
+
+    if (!key) {
+      return new Response(JSON.stringify({ ok:false, error:"Missing NODDI_API_KEY" }), { 
+        status: 400, 
+        headers: { ...corsHeaders, "content-type":"application/json" } 
+      });
+    }
+
+    const endpoint = `${base.replace(/\/+$/,"")}/v1/users/get-by-email/?email=${encodeURIComponent(testEmail)}`;
+
+    const tries: Array<{ name: string; headers: Record<string, string> }> = [
+      { name: "Authorization: Api-Key", headers: { Accept: "application/json", Authorization: `Api-Key ${key}` } },
+      { name: "X-Api-Key",             headers: { Accept: "application/json", "X-Api-Key": key } },
     ];
-    
-    let lastResponse = null;
-    let lastStatus = 0;
-    
-    for (const endpoint of endpoints) {
-      const url = `${API}${endpoint}`;
-      console.log(`Trying endpoint: ${url}`);
-      
-      const r = await fetch(url, { 
-        headers: { Authorization: `Api-Key ${KEY}` } 
-      }).catch(() => null);
-      
-      lastResponse = r;
-      lastStatus = r?.status ?? 0;
-      
-      console.log(`Endpoint ${endpoint} returned status: ${lastStatus}`);
-      
-      if (r && r.ok) {
-        console.log(`Connection test SUCCESS with endpoint: ${endpoint}`);
-        return new Response(
-          JSON.stringify({ ok: true, status: lastStatus, endpoint }), 
-          { headers: { ...corsHeaders, "content-type": "application/json" } }
-        );
+
+    for (const t of tries) {
+      try {
+        const r = await fetch(endpoint, { headers: t.headers });
+        const text = await r.text();
+        if (r.ok) {
+          return new Response(
+            JSON.stringify({ ok:true, style:t.name, status:r.status, endpoint, sample: JSON.parse(text) }), 
+            { headers: { ...corsHeaders, "content-type":"application/json" }}
+          );
+        } else {
+          // keep trying; but collect detail
+          console.log(`[noddi] probe ${t.name} -> ${r.status} ${r.statusText} ${text.slice(0,400)}`);
+        }
+      } catch (e) {
+        console.log(`[noddi] probe ${t.name} failed`, e);
       }
     }
-    
-    console.log(`All endpoints failed. Last status: ${lastStatus}`);
-    return new Response(
-      JSON.stringify({ 
-        ok: false, 
-        status: lastStatus,
-        message: 'All test endpoints returned errors. Please check API documentation for correct endpoint.'
-      }), 
-      { headers: { ...corsHeaders, "content-type": "application/json" } }
-    );
+
+    return new Response(JSON.stringify({
+      ok:false,
+      endpoint,
+      hint: "If both header styles fail: ensure API key is valid and linked user is is_staff=True for this endpoint.",
+    }), { status: 502, headers: { ...corsHeaders, "content-type":"application/json" }});
   } catch (error) {
     console.error("Connection test error:", error);
     return new Response(
       JSON.stringify({ ok: false, status: 0, error: String(error) }), 
-      { status: 500, headers: { ...corsHeaders, "content-type": "application/json" } }
+      { status: 500, headers: { ...corsHeaders, "content-type":"application/json" } }
     );
   }
 });
