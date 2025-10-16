@@ -1,0 +1,198 @@
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+
+export type SegmentCounts = {
+  New?: number;
+  Active?: number;
+  "At-risk"?: number;
+  Churned?: number;
+  Winback?: number;
+  High?: number;
+  Mid?: number;
+  Low?: number;
+};
+
+export type Customer = {
+  id: number;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  segments: {
+    lifecycle: string | null;
+    value_tier: string | null;
+    tags: any;
+  } | null;
+  features: {
+    last_booking_at: string | null;
+    revenue_24m: number | null;
+    margin_24m: number | null;
+    service_tags_all: any;
+    storage_active: boolean | null;
+    discount_share_24m: number | null;
+    recency_days: number | null;
+  } | null;
+};
+
+export function useSegmentCounts() {
+  return useQuery({
+    queryKey: ["segment-counts"],
+    queryFn: async () => {
+      const [lifecycleData, valueData] = await Promise.all([
+        supabase
+          .from("segments")
+          .select("lifecycle")
+          .not("lifecycle", "is", null),
+        supabase
+          .from("segments")
+          .select("value_tier")
+          .not("value_tier", "is", null),
+      ]);
+
+      const counts: SegmentCounts = {};
+
+      lifecycleData.data?.forEach((row) => {
+        const lifecycle = row.lifecycle as string;
+        counts[lifecycle] = (counts[lifecycle] || 0) + 1;
+      });
+
+      valueData.data?.forEach((row) => {
+        const tier = row.value_tier as string;
+        counts[tier] = (counts[tier] || 0) + 1;
+      });
+
+      return counts;
+    },
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 30 * 60 * 1000,
+  });
+}
+
+export function useCustomers(params?: {
+  lifecycle?: string;
+  value_tier?: string;
+  tag?: string;
+  search?: string;
+}) {
+  return useQuery({
+    queryKey: ["customers", params],
+    queryFn: async () => {
+      let query = supabase
+        .from("customers")
+        .select(
+          `id,
+          first_name,
+          last_name,
+          email,
+          segments!inner(lifecycle,value_tier,tags),
+          features!inner(last_booking_at,revenue_24m,margin_24m,service_tags_all,storage_active,discount_share_24m,recency_days)`
+        )
+        .limit(5000);
+
+      if (params?.lifecycle) {
+        query = query.eq("segments.lifecycle", params.lifecycle);
+      }
+
+      if (params?.value_tier) {
+        query = query.eq("segments.value_tier", params.value_tier);
+      }
+
+      if (params?.tag) {
+        query = query.contains("features.service_tags_all", [params.tag]);
+      }
+
+      if (params?.search) {
+        query = query.or(
+          `email.ilike.%${params.search}%,first_name.ilike.%${params.search}%,last_name.ilike.%${params.search}%`
+        );
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+      return data as Customer[];
+    },
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 30 * 60 * 1000,
+    refetchOnMount: false,
+  });
+}
+
+export function useCustomerDetails(userId: number) {
+  return useQuery({
+    queryKey: ["customer", userId],
+    queryFn: async () => {
+      const [customerData, bookingsData, featuresData, segmentsData] =
+        await Promise.all([
+          supabase.from("customers").select("*").eq("id", userId).maybeSingle(),
+          supabase
+            .from("bookings")
+            .select("*")
+            .eq("user_id", userId)
+            .order("started_at", { ascending: false }),
+          supabase.from("features").select("*").eq("user_id", userId).maybeSingle(),
+          supabase.from("segments").select("*").eq("user_id", userId).maybeSingle(),
+        ]);
+
+      // Fetch order lines for each booking
+      const bookingIds = bookingsData.data?.map((b) => b.id) || [];
+      const { data: orderLinesData } = await supabase
+        .from("order_lines")
+        .select("*")
+        .in("booking_id", bookingIds);
+
+      // Group order lines by booking_id
+      const orderLinesByBooking: Record<number, any[]> = {};
+      orderLinesData?.forEach((line) => {
+        if (!orderLinesByBooking[line.booking_id]) {
+          orderLinesByBooking[line.booking_id] = [];
+        }
+        orderLinesByBooking[line.booking_id].push(line);
+      });
+
+      // Add order lines to bookings
+      const bookingsWithLines =
+        bookingsData.data?.map((booking) => ({
+          ...booking,
+          order_lines: orderLinesByBooking[booking.id] || [],
+        })) || [];
+
+      return {
+        customer: customerData.data,
+        bookings: bookingsWithLines,
+        features: featuresData.data,
+        segments: segmentsData.data,
+      };
+    },
+    enabled: !!userId,
+  });
+}
+
+export function useSyncStatus() {
+  return useQuery({
+    queryKey: ["sync-status"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("sync_state")
+        .select("*")
+        .order("last_run_at", { ascending: false });
+      return data || [];
+    },
+    staleTime: 10 * 1000, // 10 seconds (more frequent for sync status)
+    refetchInterval: 10 * 1000,
+  });
+}
+
+export function useSettings() {
+  return useQuery({
+    queryKey: ["settings"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("settings")
+        .select("*")
+        .eq("key", "thresholds")
+        .maybeSingle();
+      return data?.value || {};
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}

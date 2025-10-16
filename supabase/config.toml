@@ -1,1 +1,10 @@
 project_id = "wylrkmtpjodunmnwncej"
+
+[functions.sync-noddi-data]
+verify_jwt = false
+
+[functions.compute-segments]
+verify_jwt = false
+
+[functions.test-noddi-connection]
+verify_jwt = false

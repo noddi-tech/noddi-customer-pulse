@@ -14,7 +14,305 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      bookings: {
+        Row: {
+          completed_at: string | null
+          date: string | null
+          id: number
+          is_cancelled: boolean | null
+          is_fully_paid: boolean | null
+          is_fully_unable_to_complete: boolean | null
+          is_partially_unable_to_complete: boolean | null
+          started_at: string | null
+          status_label: string | null
+          updated_at: string | null
+          user_group_id: number | null
+          user_id: number | null
+        }
+        Insert: {
+          completed_at?: string | null
+          date?: string | null
+          id: number
+          is_cancelled?: boolean | null
+          is_fully_paid?: boolean | null
+          is_fully_unable_to_complete?: boolean | null
+          is_partially_unable_to_complete?: boolean | null
+          started_at?: string | null
+          status_label?: string | null
+          updated_at?: string | null
+          user_group_id?: number | null
+          user_id?: number | null
+        }
+        Update: {
+          completed_at?: string | null
+          date?: string | null
+          id?: number
+          is_cancelled?: boolean | null
+          is_fully_paid?: boolean | null
+          is_fully_unable_to_complete?: boolean | null
+          is_partially_unable_to_complete?: boolean | null
+          started_at?: string | null
+          status_label?: string | null
+          updated_at?: string | null
+          user_group_id?: number | null
+          user_id?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bookings_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customers: {
+        Row: {
+          created_at: string | null
+          email: string | null
+          first_name: string | null
+          id: number
+          language_code: string | null
+          last_name: string | null
+          phone: string | null
+          updated_at: string | null
+          user_group_id: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          email?: string | null
+          first_name?: string | null
+          id: number
+          language_code?: string | null
+          last_name?: string | null
+          phone?: string | null
+          updated_at?: string | null
+          user_group_id?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          email?: string | null
+          first_name?: string | null
+          id?: number
+          language_code?: string | null
+          last_name?: string | null
+          phone?: string | null
+          updated_at?: string | null
+          user_group_id?: number | null
+        }
+        Relationships: []
+      }
+      features: {
+        Row: {
+          computed_at: string | null
+          discount_share_24m: number | null
+          frequency_24m: number | null
+          fully_paid_rate: number | null
+          last_booking_at: string | null
+          last_dekkskift_at: string | null
+          margin_24m: number | null
+          recency_days: number | null
+          revenue_24m: number | null
+          seasonal_due_at: string | null
+          service_counts: Json | null
+          service_tags_all: Json | null
+          storage_active: boolean | null
+          user_id: number
+        }
+        Insert: {
+          computed_at?: string | null
+          discount_share_24m?: number | null
+          frequency_24m?: number | null
+          fully_paid_rate?: number | null
+          last_booking_at?: string | null
+          last_dekkskift_at?: string | null
+          margin_24m?: number | null
+          recency_days?: number | null
+          revenue_24m?: number | null
+          seasonal_due_at?: string | null
+          service_counts?: Json | null
+          service_tags_all?: Json | null
+          storage_active?: boolean | null
+          user_id: number
+        }
+        Update: {
+          computed_at?: string | null
+          discount_share_24m?: number | null
+          frequency_24m?: number | null
+          fully_paid_rate?: number | null
+          last_booking_at?: string | null
+          last_dekkskift_at?: string | null
+          margin_24m?: number | null
+          recency_days?: number | null
+          revenue_24m?: number | null
+          seasonal_due_at?: string | null
+          service_counts?: Json | null
+          service_tags_all?: Json | null
+          storage_active?: boolean | null
+          user_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "features_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      order_lines: {
+        Row: {
+          amount_gross: number | null
+          amount_vat: number | null
+          booking_id: number | null
+          created_at: string | null
+          currency: string | null
+          description: string | null
+          id: number
+          is_delivery_fee: boolean | null
+          is_discount: boolean | null
+          quantity: number | null
+          sales_item_id: number | null
+        }
+        Insert: {
+          amount_gross?: number | null
+          amount_vat?: number | null
+          booking_id?: number | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id: number
+          is_delivery_fee?: boolean | null
+          is_discount?: boolean | null
+          quantity?: number | null
+          sales_item_id?: number | null
+        }
+        Update: {
+          amount_gross?: number | null
+          amount_vat?: number | null
+          booking_id?: number | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: number
+          is_delivery_fee?: boolean | null
+          is_discount?: boolean | null
+          quantity?: number | null
+          sales_item_id?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_lines_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      segments: {
+        Row: {
+          lifecycle: string | null
+          previous_lifecycle: string | null
+          tags: Json | null
+          updated_at: string | null
+          user_id: number
+          value_tier: string | null
+        }
+        Insert: {
+          lifecycle?: string | null
+          previous_lifecycle?: string | null
+          tags?: Json | null
+          updated_at?: string | null
+          user_id: number
+          value_tier?: string | null
+        }
+        Update: {
+          lifecycle?: string | null
+          previous_lifecycle?: string | null
+          tags?: Json | null
+          updated_at?: string | null
+          user_id?: number
+          value_tier?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "segments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      settings: {
+        Row: {
+          key: string
+          updated_at: string | null
+          value: Json | null
+        }
+        Insert: {
+          key: string
+          updated_at?: string | null
+          value?: Json | null
+        }
+        Update: {
+          key?: string
+          updated_at?: string | null
+          value?: Json | null
+        }
+        Relationships: []
+      }
+      storage_status: {
+        Row: {
+          ended_at: string | null
+          is_active: boolean | null
+          updated_at: string | null
+          user_group_id: number
+        }
+        Insert: {
+          ended_at?: string | null
+          is_active?: boolean | null
+          updated_at?: string | null
+          user_group_id: number
+        }
+        Update: {
+          ended_at?: string | null
+          is_active?: boolean | null
+          updated_at?: string | null
+          user_group_id?: number
+        }
+        Relationships: []
+      }
+      sync_state: {
+        Row: {
+          error_message: string | null
+          high_watermark: string | null
+          last_run_at: string | null
+          resource: string
+          rows_fetched: number | null
+          status: string | null
+        }
+        Insert: {
+          error_message?: string | null
+          high_watermark?: string | null
+          last_run_at?: string | null
+          resource: string
+          rows_fetched?: number | null
+          status?: string | null
+        }
+        Update: {
+          error_message?: string | null
+          high_watermark?: string | null
+          last_run_at?: string | null
+          resource?: string
+          rows_fetched?: number | null
+          status?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
