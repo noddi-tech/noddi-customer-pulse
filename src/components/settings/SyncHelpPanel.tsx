@@ -4,9 +4,24 @@ import { cn } from "@/lib/utils";
 
 interface SyncHelpPanelProps {
   currentStep: 1 | 2 | 3 | 4;
+  syncComplete?: boolean;
+  computeComplete?: boolean;
 }
 
-export function SyncHelpPanel({ currentStep }: SyncHelpPanelProps) {
+export function SyncHelpPanel({ currentStep, syncComplete, computeComplete }: SyncHelpPanelProps) {
+  const getRecommendedAction = () => {
+    if (!syncComplete) {
+      return "⏳ Wait for data sync to complete (auto-sync runs every 2 minutes)";
+    }
+    if (!computeComplete && syncComplete) {
+      return "▶️ Click 'Recompute Segments' to update customer insights";
+    }
+    if (computeComplete) {
+      return "✅ All set! View results in Dashboard or Segments pages";
+    }
+    return "🔄 Keep this page open to monitor progress";
+  };
+
   const steps = [
     {
       number: 1,
@@ -44,6 +59,12 @@ export function SyncHelpPanel({ currentStep }: SyncHelpPanelProps) {
         <span>📋</span>
         Sync Workflow
       </h3>
+
+      <div className="mb-4 p-2 bg-background/50 rounded border border-primary/20">
+        <p className="text-xs font-medium text-primary">
+          {getRecommendedAction()}
+        </p>
+      </div>
       
       <div className="space-y-3">
         {steps.map((step, index) => (

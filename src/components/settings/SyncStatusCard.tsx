@@ -1,7 +1,8 @@
 import { CheckCircle, AlertCircle, RefreshCw, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatDistanceToNow } from "date-fns";
 
-type SyncState = "idle" | "syncing" | "complete" | "error" | "ready-to-compute";
+type SyncState = "idle" | "syncing" | "complete" | "error" | "ready-to-compute" | "computing";
 
 interface SyncStatusCardProps {
   customersProgress: number;
@@ -13,6 +14,8 @@ interface SyncStatusCardProps {
   isRunning: boolean;
   hasError?: boolean;
   errorMessage?: string;
+  isComputingSegments?: boolean;
+  lastComputeTime?: Date | null;
 }
 
 export function SyncStatusCard({
@@ -25,12 +28,15 @@ export function SyncStatusCard({
   isRunning,
   hasError,
   errorMessage,
+  isComputingSegments,
+  lastComputeTime,
 }: SyncStatusCardProps) {
   // Determine overall sync state
   const getSyncState = (): SyncState => {
+    if (isComputingSegments) return "computing";
     if (hasError) return "error";
     if (isRunning) return "syncing";
-    if (customersProgress >= 99 && bookingsProgress >= 99) return "ready-to-compute";
+    if (customersProgress >= 100 && bookingsProgress >= 100) return "ready-to-compute";
     if (customersProgress > 0 || bookingsProgress > 0) return "complete";
     return "idle";
   };
@@ -39,21 +45,32 @@ export function SyncStatusCard({
 
   const getStateConfig = () => {
     switch (state) {
+      case "computing":
+        return {
+          icon: RefreshCw,
+          iconClass: "text-purple-500 animate-spin",
+          bgClass: "bg-purple-50 dark:bg-purple-950/30 border-purple-200 dark:border-purple-900",
+          title: "Computing Segments",
+          message: "Analyzing customer data and calculating segments...",
+        };
       case "syncing":
         return {
           icon: RefreshCw,
           iconClass: "text-blue-500 animate-spin",
           bgClass: "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900",
           title: "Sync in Progress",
-          message: `Syncing bookings... ${bookingsInDb.toLocaleString()} of ${bookingsTotal?.toLocaleString() || "~21,000"} (${Math.round(bookingsProgress)}%)`,
+          message: `Syncing data... ${bookingsInDb.toLocaleString()} bookings synced (${Math.round(bookingsProgress)}%)`,
         };
       case "ready-to-compute":
+        const needsCompute = !lastComputeTime || (customersProgress >= 100 && bookingsProgress >= 100);
         return {
           icon: Sparkles,
           iconClass: "text-green-500",
           bgClass: "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-900",
-          title: "✅ Sync Complete!",
-          message: `All data synced. ${customersInDb.toLocaleString()} customers and ${bookingsInDb.toLocaleString()} bookings ready.`,
+          title: needsCompute ? "✅ Ready to Compute Segments" : "✅ All Up to Date",
+          message: needsCompute 
+            ? `Data synced. Click 'Recompute Segments' to update insights.`
+            : `Last computed ${lastComputeTime ? formatDistanceToNow(lastComputeTime, { addSuffix: true }) : 'recently'}`,
         };
       case "error":
         return {

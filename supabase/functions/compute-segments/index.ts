@@ -78,11 +78,12 @@ serve(async (req) => {
       const ids = customerIds;
 
       // Fetch bookings & order_lines within last 24 months
+      const cutoffDate = new Date(now.getTime() - 1000 * 60 * 60 * 24 * 365 * 2).toISOString();
       const { data: bk } = await sb
         .from("bookings")
-        .select("id,user_id,started_at,completed_at,status_label,is_fully_paid,is_partially_unable_to_complete,is_fully_unable_to_complete")
+        .select("id,user_id,started_at,completed_at,date,status_label,is_fully_paid,is_partially_unable_to_complete,is_fully_unable_to_complete")
         .in("user_id", ids)
-        .gte("started_at", new Date(now.getTime() - 1000 * 60 * 60 * 24 * 365 * 2).toISOString());
+        .or(`started_at.gte.${cutoffDate},date.gte.${cutoffDate}`);
 
       const { data: ol } = await sb
         .from("order_lines")
@@ -111,9 +112,15 @@ serve(async (req) => {
         const uData = byUser.get(uid) ?? { bookings: [] };
         const bookings = uData.bookings as any[];
 
-        // Recency/Frequency/Monetary
+        // Recency/Frequency/Monetary - prefer started_at, fallback to date or completed_at
         const lastBookingAt = bookings.reduce((m: Date | null, b) => {
-          const t = b.started_at ? new Date(b.started_at) : null;
+          const t = b.started_at 
+            ? new Date(b.started_at) 
+            : b.date 
+              ? new Date(b.date) 
+              : b.completed_at 
+                ? new Date(b.completed_at) 
+                : null;
           return !t ? m : !m || t > m ? t : m;
         }, null);
 
@@ -142,7 +149,13 @@ serve(async (req) => {
           for (const b of bookings) {
             const lines = linesByBooking.get(b.id) ?? [];
             if (lines.some((l) => /dekkskift|tire change|wheel change/i.test(String(l.description ?? "")))) {
-              const t = b.started_at ? new Date(b.started_at) : null;
+              const t = b.started_at 
+                ? new Date(b.started_at) 
+                : b.date 
+                  ? new Date(b.date) 
+                  : b.completed_at 
+                    ? new Date(b.completed_at) 
+                    : null;
               if (t && (!latest || t > latest)) latest = t;
             }
           }
@@ -167,7 +180,13 @@ serve(async (req) => {
         // Lifecycle
         const monthsSinceDekkskift = lastDekkskiftAt ? (now.getTime() - lastDekkskiftAt.getTime()) / (1000 * 60 * 60 * 24 * 30.4375) : Infinity;
         const firstBookingAt = bookings.reduce((m: Date | null, b) => {
-          const t = b.started_at ? new Date(b.started_at) : null;
+          const t = b.started_at 
+            ? new Date(b.started_at) 
+            : b.date 
+              ? new Date(b.date) 
+              : b.completed_at 
+                ? new Date(b.completed_at) 
+                : null;
           return !t ? m : !m || t < m ? t : m;
         }, null);
         let lifecycle = "Churned";

@@ -18,7 +18,22 @@ export function SyncProgressBar({
   status,
   estimatedTime,
 }: SyncProgressBarProps) {
-  const isComplete = progress >= 99;
+  // Calculate actual progress with multiple fallbacks
+  const getActualProgress = () => {
+    // If status is explicitly 'completed', show 100%
+    if (status === 'completed') return 100;
+
+    // Calculate from actual counts
+    const calculated = total && total > 0 
+      ? Math.round((inDb / total) * 100) 
+      : progress;
+
+    // Cap at 100%
+    return Math.min(100, calculated);
+  };
+
+  const actualProgress = getActualProgress();
+  const isComplete = actualProgress >= 100 || status === 'completed';
   const isRunning = status === "running";
 
   const getBarColor = () => {
@@ -32,15 +47,15 @@ export function SyncProgressBar({
       <div className="flex items-center justify-between text-sm">
         <span className="font-medium capitalize">{resource}</span>
         <span className={cn("font-semibold", isComplete && "text-green-600 dark:text-green-400")}>
-          {Math.round(progress)}%
+          {actualProgress}%
         </span>
       </div>
 
       <div className="relative">
-        <Progress value={progress} className="h-3" />
+        <Progress value={actualProgress} className="h-3" />
         <div
           className={cn("absolute inset-0 h-3 rounded-full transition-all", getBarColor())}
-          style={{ width: `${Math.min(100, progress)}%` }}
+          style={{ width: `${actualProgress}%` }}
         />
       </div>
 
@@ -48,7 +63,7 @@ export function SyncProgressBar({
         <span>
           {inDb.toLocaleString()} {total && `of ${total.toLocaleString()}`}
         </span>
-        {estimatedTime && estimatedTime > 0 && (
+        {estimatedTime && estimatedTime > 0 && !isComplete && (
           <span className="flex items-center gap-1">
             ~{Math.ceil(estimatedTime / 60)} min remaining
           </span>

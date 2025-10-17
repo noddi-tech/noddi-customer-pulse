@@ -30,6 +30,10 @@ export default function Settings() {
   const computeMutation = useComputeSegments();
   const testMutation = useTestConnection();
   const queryClient = useQueryClient();
+  
+  // Track compute-specific state
+  const [isComputingSegments, setIsComputingSegments] = useState(false);
+  const [lastComputeTime, setLastComputeTime] = useState<Date | null>(null);
 
   // Auto-refresh when sync is running
   const isAnySyncRunning = syncStatus?.some((s) => s.status === "running") ?? false;
@@ -321,11 +325,12 @@ export default function Settings() {
 
             const isRunning = syncStatus?.some((s) => s.status === "running") ?? false;
             const hasError = syncStatus?.some((s) => s.status === "error") ?? false;
-            const isSyncComplete = customersProgress >= 99 && bookingsProgress >= 99;
+            const isSyncComplete = customersProgress >= 100 && bookingsProgress >= 100;
             
             // Determine current step for help panel
             const getCurrentStep = (): 1 | 2 | 3 | 4 => {
               if (!isSyncComplete) return isRunning ? 2 : 1;
+              if (lastComputeTime) return 4; // Computed, ready to view
               return 3; // Ready to recompute
             };
 
@@ -348,10 +353,16 @@ export default function Settings() {
                   bookingsInDb={dbCounts?.bookings || 0}
                   isRunning={isRunning}
                   hasError={hasError}
+                  isComputingSegments={isComputingSegments}
+                  lastComputeTime={lastComputeTime}
                 />
 
                 <div className="grid md:grid-cols-2 gap-4">
-                  <SyncHelpPanel currentStep={getCurrentStep()} />
+                  <SyncHelpPanel 
+                    currentStep={getCurrentStep()} 
+                    syncComplete={isSyncComplete}
+                    computeComplete={!!lastComputeTime}
+                  />
                   <SyncTimeline events={syncEvents} />
                 </div>
 
@@ -430,13 +441,26 @@ export default function Settings() {
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button
-                                  onClick={() => computeMutation.mutate()}
-                                  disabled={computeMutation.isPending}
+                                  onClick={async () => {
+                                    setIsComputingSegments(true);
+                                    const startTime = Date.now();
+                                    try {
+                                      const result = await computeMutation.mutateAsync();
+                                      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+                                      setLastComputeTime(new Date());
+                                      toast.success(`Processed ${result.users || 0} customers in ${duration}s`);
+                                    } catch (error: any) {
+                                      toast.error(`Computation failed: ${error.message}`);
+                                    } finally {
+                                      setIsComputingSegments(false);
+                                    }
+                                  }}
+                                  disabled={isComputingSegments}
                                   size="sm"
                                   className="bg-green-600 hover:bg-green-700"
                                 >
-                                  <TrendingUp className="mr-2 h-4 w-4" />
-                                  {computeMutation.isPending
+                                  <TrendingUp className={`mr-2 h-4 w-4 ${isComputingSegments ? 'animate-spin' : ''}`} />
+                                  {isComputingSegments
                                     ? "Computing..."
                                     : "Recompute Segments"}
                                 </Button>
@@ -454,11 +478,24 @@ export default function Settings() {
                               <TooltipTrigger asChild>
                                 <Button
                                   variant="outline"
-                                  onClick={() => computeMutation.mutate()}
-                                  disabled={computeMutation.isPending}
+                                  onClick={async () => {
+                                    setIsComputingSegments(true);
+                                    const startTime = Date.now();
+                                    try {
+                                      const result = await computeMutation.mutateAsync();
+                                      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+                                      setLastComputeTime(new Date());
+                                      toast.success(`Processed ${result.users || 0} customers in ${duration}s`);
+                                    } catch (error: any) {
+                                      toast.error(`Computation failed: ${error.message}`);
+                                    } finally {
+                                      setIsComputingSegments(false);
+                                    }
+                                  }}
+                                  disabled={isComputingSegments}
                                   size="sm"
                                 >
-                                  <TrendingUp className="mr-2 h-4 w-4" />
+                                  <TrendingUp className={`mr-2 h-4 w-4 ${isComputingSegments ? 'animate-spin' : ''}`} />
                                   Recompute Segments
                                 </Button>
                               </TooltipTrigger>
