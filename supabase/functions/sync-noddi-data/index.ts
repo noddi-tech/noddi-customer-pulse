@@ -144,8 +144,8 @@ async function upsertBookings(rows: any[]) {
     const batch = rows.slice(i, i + BATCH_SIZE);
     const mapped = batch.map((b) => ({
       id: b.id,
-      user_id: b.user_id != null ? (typeof b.user_id === 'string' ? parseInt(b.user_id, 10) : b.user_id) : null,
-      user_group_id: b.user_group_id ?? null,
+      user_id: b.user_group?.users?.[0]?.id ?? null, // FIX: Extract from user_group.users[0].id
+      user_group_id: b.user_group?.id ?? null,
       date: b.date ?? null,
       started_at: b.started_at ?? null,
       completed_at: b.completed_at ?? null,
@@ -311,11 +311,23 @@ Deno.serve(async (req) => {
       await upsertBookings(rows);
       bookingsFetched += rows.length;
       
-      // Persist order lines directly from the list payload (if present)
+      // FIX: Extract order lines from booking_items[].sales_items[]
       for (const b of rows) {
-        const lines = b?.order?.order_lines ?? b?.order_lines ?? [];
-        if (Array.isArray(lines) && lines.length > 0) {
-          await upsertOrderLines(b.id, lines);
+        const orderLines = (b.booking_items || []).flatMap((item: any) => 
+          (item.sales_items || []).map((si: any) => ({
+            id: si.id,
+            sales_item_id: si.id,
+            description: si.name ?? si.name_internal ?? null,
+            quantity: 1,
+            amount_gross: { amount: si.price?.amount ?? 0, currency: si.price?.currency ?? 'NOK' },
+            currency: si.price?.currency ?? 'NOK',
+            is_discount: si.sales_item_type?.value === 2, // Addon type 2 might be discount
+            is_delivery_fee: false,
+            created_at: b.created_at
+          }))
+        );
+        if (orderLines.length > 0) {
+          await upsertOrderLines(b.id, orderLines);
         }
       }
       
