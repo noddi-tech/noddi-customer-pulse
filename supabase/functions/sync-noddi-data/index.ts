@@ -48,8 +48,9 @@ async function* paged(
 ) {
   const baseUrl = API.replace(/\/+$/, "");
   let page_index = startPage;
-  const page_size = Number(params?.page_size ?? 100); // Increased from 50 to 100 for 2x speed
+  const page_size = Number(params?.page_size ?? 100);
   let pagesProcessed = 0;
+  let totalCount: number | undefined;
   
   for (;;) {
     const queryParams: Record<string, string> = {
@@ -66,10 +67,9 @@ async function* paged(
     
     if (!res.ok) {
       const body = await res.text();
-      // Fail-soft on server errors; stop gracefully on invalid page
       if (res.status >= 500) {
         console.warn(`[sync] page ${page_index} -> ${res.status}; skipping this page`);
-        page_index++; // skip ahead
+        page_index++;
         continue;
       }
       if (res.status === 404 && /Invalid page/i.test(body)) {
@@ -82,28 +82,29 @@ async function* paged(
     const data: any = await res.json();
     const rows = Array.isArray(data?.results) ? data.results : Array.isArray(data) ? data : [];
     
-    // Empty page means we've reached the end
+    // Capture total count from first page (Django Rest Framework returns {count: X, results: []})
+    if (page_index === startPage && data.count !== undefined) {
+      totalCount = data.count;
+      console.log(`[sync] Total count from Noddi API: ${totalCount}`);
+    }
+    
     if (!rows.length) {
       console.log(`[sync] Reached end of data (empty page ${page_index})`);
       break;
     }
     
-    // Calculate max ID in this page
     const maxIdInPage = rows.length > 0 ? Math.max(...rows.map((r: any) => r.id)) : 0;
     const hasNewRecords = maxIdInPage > knownMaxId;
     
-    yield { rows, page_index, maxIdInPage, hasNewRecords };
+    yield { rows, page_index, maxIdInPage, hasNewRecords, totalCount };
     page_index++;
     pagesProcessed++;
     
-    // Stop early if page limit reached for this run
     if (pagesProcessed >= maxPages) {
       console.log(`[sync] Reached page limit for this run (${maxPages}), will resume next time`);
       break;
     }
     
-    // In incremental mode ONLY, stop if no new records found
-    // In initial mode, keep going until 404/empty to ensure we get ALL data
     if (syncMode === 'incremental' && !hasNewRecords) {
       console.log(`[sync] No new records found (max ID ${maxIdInPage} <= known ${knownMaxId}), stopping`);
       break;
@@ -218,9 +219,9 @@ Deno.serve(async (req) => {
     let customersMaxIdSeen = customersState.max_id_seen || 0;
     let customersFoundNew = false;
     
-    for await (const { rows, page_index, maxIdInPage, hasNewRecords } of paged(
+    for await (const { rows, page_index, maxIdInPage, hasNewRecords, totalCount } of paged(
       "/v1/users/", 
-      { page_size: 100 }, // Increased from 50 to 100
+      { page_size: 100 },
       customersMaxPages,
       customersState.max_id_seen || 0,
       customersSyncMode,
@@ -228,6 +229,11 @@ Deno.serve(async (req) => {
     )) {
       if (customerPages === 0 && rows.length > 0) {
         console.log("[sync] sample customer:", JSON.stringify(rows[0], null, 2));
+        
+        // Store Noddi total count from first page
+        if (totalCount !== undefined) {
+          await setState("customers", { estimated_total: totalCount });
+        }
       }
       
       if (hasNewRecords) customersFoundNew = true;
@@ -283,9 +289,9 @@ Deno.serve(async (req) => {
     let bookingsMaxIdSeen = bookingsState.max_id_seen || 0;
     let bookingsFoundNew = false;
     
-    for await (const { rows, page_index, maxIdInPage, hasNewRecords } of paged(
+    for await (const { rows, page_index, maxIdInPage, hasNewRecords, totalCount } of paged(
       "/v1/bookings/", 
-      { page_size: 100 }, // Increased from 50 to 100
+      { page_size: 100 },
       bookingsMaxPages,
       bookingsState.max_id_seen || 0,
       bookingsSyncMode,
@@ -293,6 +299,11 @@ Deno.serve(async (req) => {
     )) {
       if (bookingPages === 0 && rows.length > 0) {
         console.log("[sync] sample booking:", JSON.stringify(rows[0], null, 2));
+        
+        // Store Noddi total count from first page
+        if (totalCount !== undefined) {
+          await setState("bookings", { estimated_total: totalCount });
+        }
       }
       
       if (hasNewRecords) bookingsFoundNew = true;

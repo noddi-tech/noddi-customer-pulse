@@ -274,66 +274,72 @@ export default function Settings() {
                 {syncStatus && syncStatus.length > 0 && (
                   <div className="space-y-3">
                     <h3 className="text-sm font-medium">Sync Progress</h3>
-                    {syncStatus.map((status) => (
-                      <div key={status.resource} className="border rounded-lg p-4 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium capitalize">{status.resource}</p>
-                            <p className="text-sm text-muted-foreground">
-                              Mode: <span className="font-mono">{status.sync_mode || 'initial'}</span>
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {status.status === "completed" && <CheckCircle className="h-5 w-5 text-green-500" />}
-                            {status.status === "error" && <XCircle className="h-5 w-5 text-red-500" />}
-                            {status.status === "running" && <RefreshCw className="h-5 w-5 text-blue-500 animate-spin" />}
-                            <span className="text-sm font-medium">{status.status}</span>
-                          </div>
-                        </div>
+                    {syncStatus.map((status) => {
+                      const dbCount = status.resource === 'customers' 
+                        ? dbCounts?.customers || 0
+                        : dbCounts?.bookings || 0;
+                      const noddiTotal = status.estimated_total;
+                      const actualProgress = noddiTotal && dbCount 
+                        ? Math.min(100, (dbCount / noddiTotal) * 100)
+                        : status.progress_percentage || 0;
 
-                        {status.sync_mode === 'initial' && status.progress_percentage != null && (
+                      return (
+                        <div key={status.resource} className="border rounded-lg p-4 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-medium capitalize">{status.resource}</p>
+                              <p className="text-sm text-muted-foreground">
+                                Mode: <span className="font-mono">{status.sync_mode || 'initial'}</span>
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {status.status === "completed" && <CheckCircle className="h-5 w-5 text-green-500" />}
+                              {status.status === "error" && <XCircle className="h-5 w-5 text-red-500" />}
+                              {status.status === "running" && <RefreshCw className="h-5 w-5 text-blue-500 animate-spin" />}
+                              <span className="text-sm font-medium">{status.status}</span>
+                            </div>
+                          </div>
+
                           <div className="space-y-1">
                             <div className="flex justify-between text-xs text-muted-foreground">
                               <span>Progress</span>
-                              <span>{Math.round(status.progress_percentage)}%</span>
+                              <span>{Math.round(actualProgress)}%</span>
                             </div>
-                            <Progress value={status.progress_percentage} className="h-2" />
+                            <Progress value={actualProgress} className="h-2" />
                           </div>
-                        )}
 
-                        <div className="grid grid-cols-3 gap-4 text-xs">
-                          <div>
-                            <p className="text-muted-foreground">In Database</p>
-                            <p className="font-medium text-base">
-                              {status.resource === 'customers' 
-                                ? dbCounts?.customers.toLocaleString() || 0
-                                : dbCounts?.bookings.toLocaleString() || 0
-                              }
-                            </p>
+                          <div className="grid grid-cols-3 gap-4 text-xs">
+                            <div>
+                              <p className="text-muted-foreground">Noddi Total</p>
+                              <p className="font-medium text-base">
+                                {noddiTotal ? noddiTotal.toLocaleString() : 'Calculating...'}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground">In Database</p>
+                              <p className="font-medium text-base">{dbCount.toLocaleString()}</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground">This Run</p>
+                              <p className="font-medium text-base">{status.rows_fetched?.toLocaleString() || 0}</p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-muted-foreground">This Run</p>
-                            <p className="font-medium text-base">{status.rows_fetched?.toLocaleString() || 0}</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">Page</p>
-                            <p className="font-medium text-base">{status.current_page || 0}</p>
-                          </div>
-                        </div>
-                        
-                        {status.last_run_at && (
+                          
                           <div className="text-xs text-muted-foreground">
-                            Last run: {formatDistanceToNow(new Date(status.last_run_at), { addSuffix: true })}
+                            Page: {status.current_page || 0}
+                            {status.last_run_at && (
+                              <> • Last run: {formatDistanceToNow(new Date(status.last_run_at), { addSuffix: true })}</>
+                            )}
                           </div>
-                        )}
 
-                        {status.error_message && (
-                          <p className="text-xs text-red-500 bg-red-50 p-2 rounded">
-                            {status.error_message}
-                          </p>
-                        )}
-                      </div>
-                    ))}
+                          {status.error_message && (
+                            <p className="text-xs text-red-500 bg-red-50 p-2 rounded">
+                              {status.error_message}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
 
