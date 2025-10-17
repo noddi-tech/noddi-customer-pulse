@@ -78,18 +78,28 @@ export default function Settings() {
     if (!confirm('This will force a complete re-sync of all data. Continue?')) return;
     
     try {
-      await supabase.from('sync_state').update({
-        high_watermark: null,
-        rows_fetched: 0,
+      const { error } = await supabase.from('sync_state').update({
         sync_mode: 'initial',
+        max_id_seen: 0,
+        current_page: 0,
+        rows_fetched: 0,
+        high_watermark: null,
         progress_percentage: 0,
-        status: 'pending'
+        status: 'pending',
+        error_message: null
       }).in('resource', ['customers', 'bookings']);
+
+      if (error) {
+        console.error('Reset sync error:', error);
+        toast.error(`Failed to reset sync: ${error.message}`);
+        return;
+      }
       
-      toast.success('Sync reset! Auto-sync will start on next cron run (every 2 min).');
+      toast.success('Sync reset to initial mode! Click "Manual Sync Now" to start full re-sync.');
       queryClient.invalidateQueries({ queryKey: ["sync-status"] });
-    } catch (error) {
-      toast.error('Failed to reset sync');
+    } catch (error: any) {
+      console.error('Reset sync exception:', error);
+      toast.error(`Failed to reset sync: ${error.message || 'Unknown error'}`);
     }
   };
 
