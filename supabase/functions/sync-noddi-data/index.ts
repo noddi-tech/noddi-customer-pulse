@@ -147,7 +147,7 @@ async function upsertBookings(rows: any[]) {
       user_id: b.user_group?.users?.[0]?.id ?? null, // FIX: Extract from user_group.users[0].id
       user_group_id: b.user_group?.id ?? null,
       date: b.date ?? null,
-      started_at: b.started_at ?? null,
+      started_at: b.delivery_window_starts_at || (b.date ? new Date(b.date).toISOString() : null),
       completed_at: b.completed_at ?? null,
       status_label: b.status?.label ?? b.status_label ?? null,
       is_cancelled: !!b.is_cancelled,
