@@ -76,40 +76,55 @@ export function useCustomers(params?: {
   return useQuery({
     queryKey: ["customers", params],
     queryFn: async () => {
-      let query = supabase
-        .from("customers")
-        .select(
-          `id,
-          first_name,
-          last_name,
-          email,
-          segments!inner(lifecycle,value_tier,tags),
-          features!inner(last_booking_at,revenue_24m,margin_24m,service_tags_all,storage_active,discount_share_24m,recency_days)`
-        )
-        .limit(5000);
+      // PHASE 2: Fetch ALL customers with pagination
+      let allCustomers: Customer[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      
+      while (true) {
+        let query = supabase
+          .from("customers")
+          .select(
+            `id,
+            first_name,
+            last_name,
+            email,
+            segments!inner(lifecycle,value_tier,tags),
+            features!inner(last_booking_at,revenue_24m,margin_24m,service_tags_all,storage_active,discount_share_24m,recency_days)`
+          )
+          .range(from, from + pageSize - 1)
+          .order("id");
 
-      if (params?.lifecycle) {
-        query = query.eq("segments.lifecycle", params.lifecycle);
+        if (params?.lifecycle) {
+          query = query.eq("segments.lifecycle", params.lifecycle);
+        }
+
+        if (params?.value_tier) {
+          query = query.eq("segments.value_tier", params.value_tier);
+        }
+
+        if (params?.tag) {
+          query = query.contains("features.service_tags_all", [params.tag]);
+        }
+
+        if (params?.search) {
+          query = query.or(
+            `email.ilike.%${params.search}%,first_name.ilike.%${params.search}%,last_name.ilike.%${params.search}%`
+          );
+        }
+
+        const { data, error } = await query;
+
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        
+        allCustomers = allCustomers.concat(data as Customer[]);
+        
+        if (data.length < pageSize) break; // Last page
+        from += pageSize;
       }
 
-      if (params?.value_tier) {
-        query = query.eq("segments.value_tier", params.value_tier);
-      }
-
-      if (params?.tag) {
-        query = query.contains("features.service_tags_all", [params.tag]);
-      }
-
-      if (params?.search) {
-        query = query.or(
-          `email.ilike.%${params.search}%,first_name.ilike.%${params.search}%,last_name.ilike.%${params.search}%`
-        );
-      }
-
-      const { data, error } = await query;
-
-      if (error) throw error;
-      return data as Customer[];
+      return allCustomers;
     },
     staleTime: 5 * 60 * 1000,
     refetchInterval: 30 * 60 * 1000,

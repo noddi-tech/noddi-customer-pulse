@@ -14,7 +14,11 @@ export default function Dashboard() {
   const syncMutation = useSyncNow();
   const computeMutation = useComputeSegments();
 
-  const totalCustomers = allCustomers?.length || 0;
+  // PHASE 2: Use segment counts for accurate total
+  const totalCustomers = counts 
+    ? (counts.New || 0) + (counts.Active || 0) + (counts['At-risk'] || 0) + 
+      (counts.Churned || 0) + (counts.Winback || 0)
+    : 0;
   const lifecycleCards = [
     { label: "New", count: counts?.New || 0, color: "bg-blue-500", variant: "default" as const },
     { label: "Active", count: counts?.Active || 0, color: "bg-green-500", variant: "default" as const },

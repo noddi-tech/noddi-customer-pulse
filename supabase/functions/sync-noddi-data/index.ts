@@ -161,8 +161,25 @@ async function upsertBookings(rows: any[]) {
   }
 }
 
+// Track failed order lines for retry
+const failedOrderLines = new Map<number, any[]>();
+
 async function upsertOrderLines(bookingId: number, lines: any[]) {
   if (!lines?.length) return;
+  
+  // First verify the booking exists
+  const { data: bookingExists } = await sb
+    .from("bookings")
+    .select("id")
+    .eq("id", bookingId)
+    .maybeSingle();
+  
+  if (!bookingExists) {
+    console.log(`[order_lines] Booking ${bookingId} not found, deferring ${lines.length} lines`);
+    failedOrderLines.set(bookingId, lines);
+    return;
+  }
+  
   const mapped = lines.map((l) => ({
     id: l.id,
     booking_id: bookingId,
@@ -176,8 +193,29 @@ async function upsertOrderLines(bookingId: number, lines: any[]) {
     is_delivery_fee: !!l.is_delivery_fee,
     created_at: l.created_at ?? null
   }));
+  
   const { error } = await sb.from("order_lines").upsert(mapped, { onConflict: "id" });
-  if (error) console.error("Error upserting order lines:", error);
+  if (error) {
+    console.error(`[order_lines] Error upserting for booking ${bookingId}:`, error);
+    failedOrderLines.set(bookingId, lines);
+  } else {
+    console.log(`[order_lines] ✓ Inserted ${lines.length} lines for booking ${bookingId}`);
+  }
+}
+
+// Retry failed order lines after bookings are synced
+async function retryFailedOrderLines() {
+  if (failedOrderLines.size === 0) return;
+  
+  console.log(`[order_lines] Retrying ${failedOrderLines.size} failed bookings...`);
+  let retrySuccess = 0;
+  
+  for (const [bookingId, lines] of failedOrderLines.entries()) {
+    await upsertOrderLines(bookingId, lines);
+    if (!failedOrderLines.has(bookingId)) retrySuccess++;
+  }
+  
+  console.log(`[order_lines] Retry complete: ${retrySuccess}/${failedOrderLines.size} succeeded`);
 }
 
 
@@ -373,6 +411,37 @@ Deno.serve(async (req) => {
       progress_percentage: bookingsReachedEnd ? 100 : null
     });
 
+    // PHASE 1: Retry failed order lines now that all bookings are synced
+    await retryFailedOrderLines();
+    
+    // PHASE 5: Add sync health checks
+    const [customersCount, bookingsCount, orderLinesCount, bookingsWithUser] = await Promise.all([
+      sb.from("customers").select("id", { count: "exact", head: true }),
+      sb.from("bookings").select("id", { count: "exact", head: true }),
+      sb.from("order_lines").select("id", { count: "exact", head: true }),
+      sb.from("bookings").select("id", { count: "exact", head: true }).not("user_id", "is", null)
+    ]);
+    
+    const health = {
+      customers_total: customersCount.count || 0,
+      customers_with_bookings: bookingsWithUser.count || 0,
+      bookings_total: bookingsCount.count || 0,
+      order_lines_total: orderLinesCount.count || 0,
+      avg_order_lines_per_booking: bookingsCount.count ? (orderLinesCount.count || 0) / bookingsCount.count : 0,
+      orphaned_bookings: (bookingsCount.count || 0) - (bookingsWithUser.count || 0),
+      failed_order_lines: failedOrderLines.size,
+      synced_at: new Date().toISOString()
+    };
+    
+    console.log("[sync] Health check:", health);
+    
+    // Store health metrics for UI display
+    await sb.from("settings").upsert({
+      key: "sync_health",
+      value: health,
+      updated_at: new Date().toISOString()
+    });
+
     return new Response(
       JSON.stringify({ 
         ok: true, 
@@ -381,7 +450,8 @@ Deno.serve(async (req) => {
         customersMode: newCustomersMode,
         bookingsMode: newBookingsMode,
         customersComplete: customersReachedEnd,
-        bookingsComplete: bookingsReachedEnd
+        bookingsComplete: bookingsReachedEnd,
+        health
       }), 
       { headers: { ...corsHeaders, "content-type": "application/json" } }
     );
