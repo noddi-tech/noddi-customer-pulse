@@ -199,8 +199,8 @@ Deno.serve(async (req) => {
     
     // Page limits: In initial mode, fetch many pages per run to complete faster
     // In incremental mode, only need a few pages to catch up
-    const customersMaxPages = customersSyncMode === 'initial' ? 100 : 3;
-    const bookingsMaxPages = bookingsSyncMode === 'initial' ? 100 : 3;
+    const customersMaxPages = customersSyncMode === 'initial' ? 300 : 3;
+    const bookingsMaxPages = bookingsSyncMode === 'initial' ? 300 : 3;
     
     // Resume from last successful page
     const customersStartPage = customersSyncMode === 'initial' ? (customersState.current_page || 0) : 0;
