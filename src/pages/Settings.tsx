@@ -13,10 +13,12 @@ import { useSyncStatus } from "@/hooks/segmentation";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { CheckCircle, XCircle, RefreshCw, Clock } from "lucide-react";
+import { useDatabaseCounts } from "@/hooks/useDatabaseCounts";
 
 export default function Settings() {
   const { data: thresholds, refetch } = useSettings();
   const { data: syncStatus } = useSyncStatus();
+  const { data: dbCounts } = useDatabaseCounts();
   const syncMutation = useSyncNow();
   const computeMutation = useComputeSegments();
   const testMutation = useTestConnection();
@@ -299,20 +301,31 @@ export default function Settings() {
                           </div>
                         )}
 
-                        <div className="grid grid-cols-2 gap-4 text-xs">
+                        <div className="grid grid-cols-3 gap-4 text-xs">
                           <div>
-                            <p className="text-muted-foreground">Records Synced</p>
+                            <p className="text-muted-foreground">In Database</p>
+                            <p className="font-medium text-base">
+                              {status.resource === 'customers' 
+                                ? dbCounts?.customers.toLocaleString() || 0
+                                : dbCounts?.bookings.toLocaleString() || 0
+                              }
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">This Run</p>
                             <p className="font-medium text-base">{status.rows_fetched?.toLocaleString() || 0}</p>
                           </div>
-                          {status.last_run_at && (
-                            <div>
-                              <p className="text-muted-foreground">Last Run</p>
-                              <p className="font-medium text-sm">
-                                {formatDistanceToNow(new Date(status.last_run_at), { addSuffix: true })}
-                              </p>
-                            </div>
-                          )}
+                          <div>
+                            <p className="text-muted-foreground">Page</p>
+                            <p className="font-medium text-base">{status.current_page || 0}</p>
+                          </div>
                         </div>
+                        
+                        {status.last_run_at && (
+                          <div className="text-xs text-muted-foreground">
+                            Last run: {formatDistanceToNow(new Date(status.last_run_at), { addSuffix: true })}
+                          </div>
+                        )}
 
                         {status.error_message && (
                           <p className="text-xs text-red-500 bg-red-50 p-2 rounded">

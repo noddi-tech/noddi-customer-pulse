@@ -289,8 +289,10 @@ export type Database = {
       sync_state: {
         Row: {
           auto_sync_enabled: boolean | null
+          current_page: number | null
           error_message: string | null
           estimated_completion_at: string | null
+          estimated_total: number | null
           high_watermark: string | null
           last_run_at: string | null
           max_id_seen: number | null
@@ -303,8 +305,10 @@ export type Database = {
         }
         Insert: {
           auto_sync_enabled?: boolean | null
+          current_page?: number | null
           error_message?: string | null
           estimated_completion_at?: string | null
+          estimated_total?: number | null
           high_watermark?: string | null
           last_run_at?: string | null
           max_id_seen?: number | null
@@ -317,8 +321,10 @@ export type Database = {
         }
         Update: {
           auto_sync_enabled?: boolean | null
+          current_page?: number | null
           error_message?: string | null
           estimated_completion_at?: string | null
+          estimated_total?: number | null
           high_watermark?: string | null
           last_run_at?: string | null
           max_id_seen?: number | null

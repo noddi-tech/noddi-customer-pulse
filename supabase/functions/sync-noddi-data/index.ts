@@ -24,10 +24,10 @@ const KEY = Deno.env.get("NODDI_API_KEY")!;
 async function getState(resource: string) {
   const { data } = await sb
     .from("sync_state")
-    .select("high_watermark, max_id_seen, rows_fetched, sync_mode, total_records")
+    .select("high_watermark, max_id_seen, rows_fetched, sync_mode, total_records, current_page")
     .eq("resource", resource)
     .maybeSingle();
-  return data ?? { high_watermark: null, max_id_seen: 0, rows_fetched: 0, sync_mode: 'initial', total_records: 0 };
+  return data ?? { high_watermark: null, max_id_seen: 0, rows_fetched: 0, sync_mode: 'initial', total_records: 0, current_page: 0 };
 }
 
 async function setState(resource: string, patch: Record<string, any>) {
@@ -48,7 +48,7 @@ async function* paged(
 ) {
   const baseUrl = API.replace(/\/+$/, "");
   let page_index = startPage;
-  const page_size = Number(params?.page_size ?? 50);
+  const page_size = Number(params?.page_size ?? 100); // Increased from 50 to 100 for 2x speed
   let pagesProcessed = 0;
   
   for (;;) {
@@ -113,40 +113,51 @@ async function* paged(
 
 async function upsertCustomers(rows: any[]) {
   if (!rows.length) return;
-  const mapped = rows.map((u) => ({
-    id: u.id,
-    email: u.email,
-    phone: u.phone_number ?? null,
-    first_name: u.first_name ?? null,
-    last_name: u.last_name ?? null,
-    user_group_id: u.user_group_id ?? null,
-    language_code: u.language_code ?? null,
-    created_at: u.created_at,
-    updated_at: u.updated_at
-  }));
-  const { error } = await sb.from("customers").upsert(mapped, { onConflict: "id" });
-  if (error) console.error("Error upserting customers:", error);
+  
+  // Batch upsert in chunks of 100 for better performance
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const batch = rows.slice(i, i + BATCH_SIZE);
+    const mapped = batch.map((u) => ({
+      id: u.id,
+      email: u.email,
+      phone: u.phone_number ?? null,
+      first_name: u.first_name ?? null,
+      last_name: u.last_name ?? null,
+      user_group_id: u.user_group_id ?? null,
+      language_code: u.language_code ?? null,
+      created_at: u.created_at,
+      updated_at: u.updated_at
+    }));
+    const { error } = await sb.from("customers").upsert(mapped, { onConflict: "id" });
+    if (error) console.error("Error upserting customers batch:", error);
+  }
 }
 
 async function upsertBookings(rows: any[]) {
   if (!rows.length) return;
-  const mapped = rows.map((b) => ({
-    id: b.id,
-    // Noddi list returns user_id flat; handle string|number safely
-    user_id: b.user_id != null ? (typeof b.user_id === 'string' ? parseInt(b.user_id, 10) : b.user_id) : null,
-    user_group_id: b.user_group_id ?? null,
-    date: b.date ?? null,
-    started_at: b.started_at ?? null,
-    completed_at: b.completed_at ?? null,
-    status_label: b.status?.label ?? b.status_label ?? null,
-    is_cancelled: !!b.is_cancelled,
-    is_fully_paid: b.order?.is_fully_paid ?? b.is_fully_paid ?? null,
-    is_partially_unable_to_complete: !!b.is_partially_unable_to_complete,
-    is_fully_unable_to_complete: !!b.is_fully_unable_to_complete,
-    updated_at: b.updated_at ?? null
-  }));
-  const { error } = await sb.from("bookings").upsert(mapped, { onConflict: "id" });
-  if (error) console.error("Error upserting bookings:", error);
+  
+  // Batch upsert in chunks of 100 for better performance
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const batch = rows.slice(i, i + BATCH_SIZE);
+    const mapped = batch.map((b) => ({
+      id: b.id,
+      user_id: b.user_id != null ? (typeof b.user_id === 'string' ? parseInt(b.user_id, 10) : b.user_id) : null,
+      user_group_id: b.user_group_id ?? null,
+      date: b.date ?? null,
+      started_at: b.started_at ?? null,
+      completed_at: b.completed_at ?? null,
+      status_label: b.status?.label ?? b.status_label ?? null,
+      is_cancelled: !!b.is_cancelled,
+      is_fully_paid: b.order?.is_fully_paid ?? b.is_fully_paid ?? null,
+      is_partially_unable_to_complete: !!b.is_partially_unable_to_complete,
+      is_fully_unable_to_complete: !!b.is_fully_unable_to_complete,
+      updated_at: b.updated_at ?? null
+    }));
+    const { error } = await sb.from("bookings").upsert(mapped, { onConflict: "id" });
+    if (error) console.error("Error upserting bookings batch:", error);
+  }
 }
 
 async function upsertOrderLines(bookingId: number, lines: any[]) {
@@ -190,9 +201,9 @@ Deno.serve(async (req) => {
     const customersMaxPages = customersSyncMode === 'initial' ? 100 : 3;
     const bookingsMaxPages = bookingsSyncMode === 'initial' ? 100 : 3;
     
-    // Calculate start page based on rows already fetched (resume from where we left off)
-    const customersStartPage = customersSyncMode === 'initial' ? Math.floor((customersState.rows_fetched || 0) / 50) : 0;
-    const bookingsStartPage = bookingsSyncMode === 'initial' ? Math.floor((bookingsState.rows_fetched || 0) / 50) : 0;
+    // Resume from last successful page
+    const customersStartPage = customersSyncMode === 'initial' ? (customersState.current_page || 0) : 0;
+    const bookingsStartPage = bookingsSyncMode === 'initial' ? (bookingsState.current_page || 0) : 0;
     
     console.log(`[sync] Customers: ${customersSyncMode} mode, starting page ${customersStartPage}, max ${customersMaxPages} pages, known max_id=${customersState.max_id_seen}`);
     console.log(`[sync] Bookings: ${bookingsSyncMode} mode, starting page ${bookingsStartPage}, max ${bookingsMaxPages} pages, known max_id=${bookingsState.max_id_seen}`);
@@ -209,7 +220,7 @@ Deno.serve(async (req) => {
     
     for await (const { rows, page_index, maxIdInPage, hasNewRecords } of paged(
       "/v1/users/", 
-      { page_size: 50 }, 
+      { page_size: 100 }, // Increased from 50 to 100
       customersMaxPages,
       customersState.max_id_seen || 0,
       customersSyncMode,
@@ -231,16 +242,19 @@ Deno.serve(async (req) => {
         customersState.high_watermark ?? "1970-01-01"
       );
       
-      // Calculate progress for initial sync (estimate 20k total)
-      const progress = customersSyncMode === 'initial' ? Math.min((usersFetched / 20000) * 100, 99) : null;
+      // Update counters (this run only)
+      const runFetched = usersFetched;
+      const totalInDb = (customersState.total_records || 0) + rows.length;
       
-      const totalFetched = (customersState.total_records || 0) + rows.length;
+      // Calculate progress for initial sync (estimate 10k total customers)
+      const progress = customersSyncMode === 'initial' ? Math.min((page_index / 100) * 100, 99) : null;
       
       await setState("customers", { 
         high_watermark: maxUpdated, 
         max_id_seen: customersMaxIdSeen,
-        rows_fetched: totalFetched,
-        total_records: totalFetched,
+        rows_fetched: runFetched, // This run only
+        total_records: totalInDb, // Cumulative
+        current_page: page_index + 1, // Track where we are
         progress_percentage: progress
       });
       
@@ -271,7 +285,7 @@ Deno.serve(async (req) => {
     
     for await (const { rows, page_index, maxIdInPage, hasNewRecords } of paged(
       "/v1/bookings/", 
-      { page_size: 50 },
+      { page_size: 100 }, // Increased from 50 to 100
       bookingsMaxPages,
       bookingsState.max_id_seen || 0,
       bookingsSyncMode,
@@ -302,16 +316,19 @@ Deno.serve(async (req) => {
         bookingsState.high_watermark ?? "1970-01-01"
       );
       
-      // Calculate progress for initial sync (estimate 20k total)
-      const progress = bookingsSyncMode === 'initial' ? Math.min((bookingsFetched / 20000) * 100, 99) : null;
+      // Update counters (this run only)
+      const runFetched = bookingsFetched;
+      const totalInDb = (bookingsState.total_records || 0) + rows.length;
       
-      const totalFetched = (bookingsState.total_records || 0) + rows.length;
+      // Calculate progress for initial sync (estimate 250 pages total)
+      const progress = bookingsSyncMode === 'initial' ? Math.min((page_index / 250) * 100, 99) : null;
       
       await setState("bookings", { 
         high_watermark: maxUpdated,
         max_id_seen: bookingsMaxIdSeen,
-        rows_fetched: totalFetched,
-        total_records: totalFetched,
+        rows_fetched: runFetched, // This run only
+        total_records: totalInDb, // Cumulative
+        current_page: page_index + 1, // Track where we are
         progress_percentage: progress
       });
       
