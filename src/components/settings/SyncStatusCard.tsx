@@ -60,19 +60,27 @@ export function SyncStatusCard({
           message: "Analyzing customer data and calculating segments...",
         };
       case "syncing":
-        // Detect current phase based on progress
-        const currentPhase = customersProgress < 100
-          ? `Phase 1/3: Syncing customers... (${Math.round(customersProgress)}%)`
-          : bookingsProgress < 100
-          ? `Phase 2/3: Syncing bookings... (${Math.round(bookingsProgress)}%)`
-          : `Phase 3/3: Processing order lines... (${Math.round(orderLinesProgress)}%)`;
+        // Detect current phase based on what's actually running
+        let currentPhase = "";
+        let message = "";
+        
+        if (customersProgress < 100) {
+          currentPhase = `Phase 1/3: Syncing customers... (${Math.round(customersProgress)}%)`;
+          message = `${customersInDb.toLocaleString()} customers synced`;
+        } else if (bookingsProgress < 100) {
+          currentPhase = `Phase 2/3: Syncing bookings... (${Math.round(bookingsProgress)}%)`;
+          message = `${bookingsInDb.toLocaleString()} bookings synced`;
+        } else {
+          currentPhase = `Phase 3/3: Extracting order lines... (${Math.round(orderLinesProgress)}%)`;
+          message = `${orderLinesInDb.toLocaleString()} / ${expectedOrderLines.toLocaleString()} order lines extracted`;
+        }
         
         return {
           icon: RefreshCw,
           iconClass: "text-blue-500 animate-spin",
           bgClass: "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900",
           title: currentPhase,
-          message: `${orderLinesInDb.toLocaleString()} / ${expectedOrderLines.toLocaleString()} order lines processed`,
+          message: message,
         };
       case "ready-to-compute":
         const needsCompute = !lastComputeTime || (customersProgress >= 100 && bookingsProgress >= 100);

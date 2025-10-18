@@ -157,6 +157,15 @@ async function upsertCustomers(rows: any[]) {
 async function upsertBookings(rows: any[]) {
   if (!rows.length) return;
   
+  // Log first booking to check if it contains nested booking_items/sales_items
+  if (rows.length > 0) {
+    const sample = rows[0];
+    console.log(`[bookings] Checking data structure...`);
+    console.log(`[bookings] Has booking_items: ${!!sample?.booking_items}`);
+    console.log(`[bookings] Has order: ${!!sample?.order}`);
+    console.log(`[bookings] Sample keys:`, Object.keys(sample).join(', '));
+  }
+  
   // PART 2A FIX: Filter out orphaned bookings (skip bookings with missing customers)
   const userIds = [...new Set(rows.map(r => {
     const ug = r?.user_group ?? {};
@@ -220,22 +229,52 @@ async function upsertBookings(rows: any[]) {
 async function upsertOrderLinesFromDbBookings(bookingsBatch: any[]): Promise<number> {
   const lines: any[] = [];
   let fetchedCount = 0;
+  let failedCount = 0;
 
   for (const booking of bookingsBatch) {
     try {
-      // Fetch detailed booking data from Noddi API to get nested items
-      const url = `${API}/v1/bookings/${booking.id}`;
-      const res = await fetch(url, {
+      // Try different API endpoints to find one that works
+      let b: any = null;
+      let endpoint = '';
+      
+      // Attempt 1: Try with trailing slash
+      const url1 = `${API}/v1/bookings/${booking.id}/`;
+      const res1 = await fetch(url1, {
         headers: { Accept: "application/json", Authorization: `Api-Key ${KEY}` },
       });
-
-      if (!res.ok) {
-        console.warn(`[order_lines] Failed to fetch booking ${booking.id}: ${res.status}`);
-        continue;
+      
+      if (res1.ok) {
+        b = await res1.json();
+        endpoint = url1;
+      } else {
+        // Attempt 2: Try without trailing slash
+        const url2 = `${API}/v1/bookings/${booking.id}`;
+        const res2 = await fetch(url2, {
+          headers: { Accept: "application/json", Authorization: `Api-Key ${KEY}` },
+        });
+        
+        if (res2.ok) {
+          b = await res2.json();
+          endpoint = url2;
+        } else {
+          // Log both failures once for first booking
+          if (fetchedCount === 0 && failedCount === 0) {
+            console.warn(`[order_lines] Both endpoints failed for booking ${booking.id}: ${url1} -> ${res1.status}, ${url2} -> ${res2.status}`);
+            console.warn(`[order_lines] This suggests the Noddi API may not support individual booking details`);
+          }
+          failedCount++;
+          continue;
+        }
       }
 
-      const b = await res.json();
       fetchedCount++;
+      
+      // Log success on first fetch
+      if (fetchedCount === 1) {
+        console.log(`[order_lines] ✓ Successfully fetching from: ${endpoint}`);
+        console.log(`[order_lines] Sample response keys:`, Object.keys(b).join(', '));
+        console.log(`[order_lines] Has booking_items:`, !!b?.booking_items);
+      }
       
       const bookingId = toNum(b?.id);
       if (!bookingId) continue;
@@ -268,11 +307,12 @@ async function upsertOrderLinesFromDbBookings(bookingsBatch: any[]): Promise<num
       await new Promise(resolve => setTimeout(resolve, 10));
     } catch (error) {
       console.warn(`[order_lines] Error processing booking ${booking.id}:`, error);
+      failedCount++;
     }
   }
 
   if (lines.length === 0) {
-    console.log(`[order_lines] No lines extracted from ${bookingsBatch.length} bookings`);
+    console.log(`[order_lines] ⚠️ No lines extracted from ${bookingsBatch.length} bookings (${fetchedCount} fetched, ${failedCount} failed)`);
     return 0;
   }
 
@@ -295,7 +335,7 @@ async function upsertOrderLinesFromDbBookings(bookingsBatch: any[]): Promise<num
     }
   }
 
-  console.log(`[order_lines] Extracted ${totalUpserted} lines from ${fetchedCount} bookings`);
+  console.log(`[order_lines] Extracted ${totalUpserted} lines from ${fetchedCount} bookings (${failedCount} failed)`);
   return totalUpserted;
 }
 
