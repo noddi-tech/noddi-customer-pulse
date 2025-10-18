@@ -494,11 +494,10 @@ Deno.serve(async (req) => {
     console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 3] === Syncing Order Lines ===`);
     
     const orderLinesState = await getState('order_lines');
-    const startBatch = orderLinesState.current_page || 0;
+    const startBatch = 0; // Always start from 0 for current run's bookings
     const batchSize = 50;
     let totalOrderLinesExtracted = 0;
     let totalBookingsProcessed = 0;
-    let currentBatch = startBatch;
     
     // FIX: Only process bookings synced in THIS run (from allBookingsForOrderLines)
     // NOT all bookings in database (which causes timeout)
@@ -512,6 +511,13 @@ Deno.serve(async (req) => {
     const totalBatches = Math.ceil(totalBookingsCount / batchSize);
     console.log(`[DEPLOYMENT ${DEPLOYMENT_VERSION}] [order_lines] Batch calculation: ${totalBookingsCount} bookings ÷ ${batchSize} per batch = ${totalBatches} total batches`);
     
+    // Safety check: Ensure batch counter is valid for this run
+    let currentBatch = startBatch;
+    if (startBatch >= totalBatches && totalBatches > 0) {
+      console.log(`[order_lines] ⚠️ Batch counter (${startBatch}) >= total batches (${totalBatches}), resetting to 0`);
+      currentBatch = 0;
+    }
+    
     if (totalBookingsCount === 0) {
       console.log('[order_lines] No bookings with items in current run, skipping extraction');
       await setState('order_lines', { status: 'pending', rows_fetched: 0 });
@@ -523,6 +529,7 @@ Deno.serve(async (req) => {
       });
       
       // Process bookings in batches
+      console.log(`[order_lines] Starting extraction loop: currentBatch=${currentBatch}, totalBatches=${totalBatches}, will run=${currentBatch < totalBatches}`);
       while (currentBatch < totalBatches) {
         // Check timeout before processing batch
         if (Date.now() - functionStartTime > MAX_RUNTIME_MS) {
@@ -561,8 +568,8 @@ Deno.serve(async (req) => {
       
       // Update progress - track actual order lines extracted, not bookings
       const progressPct = Math.min(100, (currentBatch / totalBatches) * 100);
+      // Note: current_page will reset to 0 next run, only saved for timeout scenarios
       await setState('order_lines', {
-        current_page: currentBatch,
         rows_fetched: totalOrderLinesExtracted, // Track lines, not bookings
         progress_percentage: progressPct,
         status: 'running',
