@@ -373,11 +373,12 @@ Deno.serve(async (req) => {
     const customersMaxPages = 5;
     const bookingsMaxPages = 5;
     
-    const customersStartPage = customersSyncMode === 'initial' ? (customersState.current_page || 0) : 0;
-    const bookingsStartPage = bookingsSyncMode === 'initial' ? (bookingsState.current_page || 0) : 0;
+    // Read starting page from database (resume from where we left off)
+    let customersCurrentPage = customersState.current_page || 0;
+    let bookingsCurrentPage = bookingsState.current_page || 0;
     
-    console.log(`[PHASE 1] Customers: ${customersSyncMode} mode, page ${customersStartPage}`);
-    console.log(`[PHASE 2] Bookings: ${bookingsSyncMode} mode, page ${bookingsStartPage}`);
+    console.log(`[PHASE 1] Customers: ${customersSyncMode} mode, page ${customersCurrentPage}`);
+    console.log(`[PHASE 2] Bookings: ${bookingsSyncMode} mode, page ${bookingsCurrentPage}`);
     
     await setState("customers", { status: "running", error_message: null });
     await setState("bookings", { status: "running", error_message: null });
@@ -385,8 +386,8 @@ Deno.serve(async (req) => {
     // Check timeout before starting
     if (Date.now() - functionStartTime > MAX_RUNTIME_MS) {
       console.log('[TIMEOUT] Function approaching time limit before Phase 1, exiting');
-      await setState("customers", { status: "pending", current_page: customersStartPage });
-      await setState("bookings", { status: "pending", current_page: bookingsStartPage });
+      await setState("customers", { status: "pending", current_page: customersCurrentPage });
+      await setState("bookings", { status: "pending", current_page: bookingsCurrentPage });
       return new Response(JSON.stringify({ ok: true, timeout: true }), {
         headers: { ...corsHeaders, "content-type": "application/json" }
       });
@@ -404,7 +405,7 @@ Deno.serve(async (req) => {
       customersMaxPages,
       customersState.max_id_seen || 0,
       customersSyncMode,
-      customersStartPage,
+      customersCurrentPage, // Resume from saved page
       customersState.high_watermark
     )) {
       if (customerPages === 0 && totalCount !== undefined) {
@@ -421,11 +422,14 @@ Deno.serve(async (req) => {
         customersState.high_watermark ?? "1970-01-01"
       );
       
+      // Update page tracking immediately after successful fetch
+      customersCurrentPage = page_index + 1;
+      
       await setState("customers", { 
         high_watermark: maxUpdated, 
         max_id_seen: customersMaxIdSeen,
         rows_fetched: usersFetched,
-        current_page: page_index + 1,
+        current_page: customersCurrentPage,
       });
       
       console.log(`[PHASE 1] customers page ${page_index}: ${rows.length} rows`);
@@ -443,7 +447,7 @@ Deno.serve(async (req) => {
     if (Date.now() - functionStartTime > MAX_RUNTIME_MS) {
       console.log('[TIMEOUT] Function approaching time limit after Phase 1, exiting');
       await setState("customers", { status: customersReachedEnd ? 'completed' : 'pending' });
-      await setState("bookings", { status: "pending", current_page: bookingsStartPage });
+      await setState("bookings", { status: "pending", current_page: bookingsCurrentPage });
       return new Response(JSON.stringify({ ok: true, timeout: true, usersFetched }), {
         headers: { ...corsHeaders, "content-type": "application/json" }
       });
@@ -462,7 +466,7 @@ Deno.serve(async (req) => {
       bookingsMaxPages,
       bookingsState.max_id_seen || 0,
       bookingsSyncMode,
-      bookingsStartPage,
+      bookingsCurrentPage, // Resume from saved page
       bookingsState.high_watermark
     )) {
       if (bookingPages === 0 && totalCount !== undefined) {
@@ -480,11 +484,14 @@ Deno.serve(async (req) => {
         bookingsState.high_watermark ?? "1970-01-01"
       );
       
+      // Update page tracking immediately after successful fetch
+      bookingsCurrentPage = page_index + 1;
+      
       await setState("bookings", { 
         high_watermark: maxUpdated,
         max_id_seen: bookingsMaxIdSeen,
         rows_fetched: bookingsFetched,
-        current_page: page_index + 1,
+        current_page: bookingsCurrentPage,
       });
       
       console.log(`[PHASE 2] bookings page ${page_index}: ${rows.length} rows`);

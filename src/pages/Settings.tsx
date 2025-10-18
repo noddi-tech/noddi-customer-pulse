@@ -388,15 +388,11 @@ export default function Settings() {
               ? Math.min(100, (dbCounts.bookings / bookingsStatus.estimated_total) * 100)
               : 0;
 
-            // PART 6: Database-driven progress for order_lines (based on max_id_seen)
-            const orderLinesProgress = orderLinesStatus?.max_id_seen && dbCounts?.bookings
-              ? Math.min(100, (orderLinesStatus.max_id_seen / dbCounts.bookings) * 100)
-              : orderLinesStatus?.progress_percentage || 0;
-            
-            // PART 1: Fix expected order lines calculation using total bookings
-            const totalBookingsCount = dbCounts?.bookings || 20618;
-            const bookingsWithItemsEstimate = totalBookingsCount * 0.95; // 95% have items
-            const expectedOrderLines = bookingsWithItemsEstimate * 2.3; // avg 2.3 lines per booking
+            // Use actual database bookings count for order lines (1:1 minimum ratio)
+            const expectedOrderLines = dbCounts?.bookings || 0;
+            const orderLinesProgress = expectedOrderLines > 0
+              ? Math.min(100, ((dbCounts?.order_lines || 0) / expectedOrderLines) * 100)
+              : 0;
 
             const isRunning = syncStatus?.some((s) => s.status === "running") ?? false;
             const hasError = syncStatus?.some((s) => s.status === "error") ?? false;
@@ -569,16 +565,16 @@ export default function Settings() {
               <CardContent>
                 <div className="space-y-2">
                   <Progress 
-                    value={Math.round(((bookingsStatus.current_page || 0) / Math.ceil(bookingsStatus.estimated_total / 100)) * 100)} 
+                    value={Math.round(((bookingsStatus.rows_fetched || 0) / bookingsStatus.estimated_total) * 100)} 
                     className="h-3"
                   />
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
                     <span>
-                      Page {bookingsStatus.current_page || 0} of ~{Math.ceil(bookingsStatus.estimated_total / 100)}
+                      {bookingsStatus.rows_fetched || 0} of {bookingsStatus.estimated_total} bookings
                     </span>
                     <div className="flex flex-col items-end gap-1">
                       <span className="font-semibold text-blue-600 dark:text-blue-400">
-                        {Math.round(((bookingsStatus.current_page || 0) / Math.ceil(bookingsStatus.estimated_total / 100)) * 100)}%
+                        {Math.round(((bookingsStatus.rows_fetched || 0) / bookingsStatus.estimated_total) * 100)}%
                       </span>
                       {bookingsStatus.last_run_at && (
                         <span className={cn(

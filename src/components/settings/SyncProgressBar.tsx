@@ -46,32 +46,11 @@ export function SyncProgressBar({
   const isComplete = actualProgress >= 100 || status === 'completed';
   const isRunning = status === "running";
 
-  // PART 3: Detect order lines incomplete status (shows 100% but clearly wrong)
-  const isOrderLinesIncomplete = 
-    resource === "order_lines" && 
-    status === "success" && 
-    total && 
-    inDb < total * 0.5; // Less than 50% of expected
-
   const getBarColor = () => {
     if (isComplete) return "bg-green-500";
     if (isRunning) return "bg-blue-500";
     return "bg-primary";
   };
-
-  // Show warning if order lines appear incomplete
-  if (isOrderLinesIncomplete) {
-    return (
-      <Alert variant="default" className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950/30">
-        <AlertCircle className="h-4 w-4 text-yellow-600" />
-        <AlertTitle>⚠️ Order Lines Incomplete</AlertTitle>
-        <AlertDescription className="text-sm">
-          Extracted {inDb.toLocaleString()} lines but {total.toLocaleString()} expected.
-          This sync was interrupted. Will resume on next sync cycle.
-        </AlertDescription>
-      </Alert>
-    );
-  }
 
   return (
     <div className="space-y-2">
