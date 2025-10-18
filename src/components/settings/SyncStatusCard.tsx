@@ -42,8 +42,12 @@ export function SyncStatusCard({
     if (isComputingSegments) return "computing";
     if (hasError) return "error";
     if (isRunning) return "syncing";
-    if (customersProgress >= 100 && bookingsProgress >= 100) return "ready-to-compute";
-    if (customersProgress > 0 || bookingsProgress > 0) return "complete";
+    
+    // Check if all phases are complete
+    const allPhasesComplete = customersProgress >= 100 && bookingsProgress >= 100 && orderLinesProgress >= 100;
+    if (allPhasesComplete && customersInDb > 0 && bookingsInDb > 0) return "ready-to-compute";
+    
+    if (customersProgress > 0 || bookingsProgress > 0 || orderLinesProgress > 0) return "complete";
     return "idle";
   };
 

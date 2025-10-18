@@ -262,14 +262,14 @@ async function upsertOrderLinesFromDbBookings(bookingsBatch: any[]): Promise<num
       if (!Array.isArray(salesItems)) continue;
 
       for (const salesItem of salesItems) {
-        const id = toNum(salesItem?.id);
-        if (!id) continue;
+        const salesItemId = toNum(salesItem?.id);
+        if (!salesItemId) continue;
 
-        // Map to order_lines structure
+        // Map to order_lines structure with unique UUID
         allLines.push({
-          id,
+          id: crypto.randomUUID(), // Generate unique UUID for each instance
           booking_id: booking.id,
-          sales_item_id: salesItem.sales_item?.id || id,
+          sales_item_id: salesItem.sales_item?.id || salesItemId,
           description: salesItem.sales_item?.name || salesItem.description || null,
           quantity: Number(salesItem.quantity || 1),
           amount_gross: Number(salesItem.sales_item?.price_gross?.amount || 0),
@@ -285,16 +285,16 @@ async function upsertOrderLinesFromDbBookings(bookingsBatch: any[]): Promise<num
     successCount++;
   }
 
-  // Upsert order lines in chunks of 500
+  // Insert order lines in chunks of 500 (no upsert needed with UUIDs)
   if (allLines.length > 0) {
     for (let i = 0; i < allLines.length; i += 500) {
       const chunk = allLines.slice(i, i + 500);
-      const { error: upsertError } = await sb
+      const { error: insertError } = await sb
         .from("order_lines")
-        .upsert(chunk, { onConflict: "id" });
+        .insert(chunk);
 
-      if (upsertError) {
-        console.error(`[order_lines] Error upserting chunk ${i}-${i + chunk.length}:`, upsertError);
+      if (insertError) {
+        console.error(`[order_lines] Error inserting chunk ${i}-${i + chunk.length}:`, insertError);
       }
     }
   }
@@ -435,7 +435,8 @@ Deno.serve(async (req) => {
     const orderLinesState = await getState('order_lines');
     const startBatch = orderLinesState.current_page || 0;
     const batchSize = 100; // Process 100 bookings at a time
-    let totalOrderLinesProcessed = 0;
+    let totalOrderLinesExtracted = 0; // Track actual order lines extracted
+    let totalBookingsProcessed = 0;
     let currentBatch = startBatch;
     
     // Query total bookings count
@@ -477,30 +478,32 @@ Deno.serve(async (req) => {
       }
       
       // Extract order lines from this batch
-      const linesProcessed = await upsertOrderLinesFromDbBookings(bookingsBatch);
-      totalOrderLinesProcessed += linesProcessed;
+      const linesExtracted = await upsertOrderLinesFromDbBookings(bookingsBatch);
+      totalOrderLinesExtracted += linesExtracted;
+      totalBookingsProcessed += bookingsBatch.length;
       
       currentBatch++;
       
-      // Update progress
+      // Update progress - track actual order lines extracted, not bookings
       const progressPct = Math.min(100, (currentBatch / totalBatches) * 100);
       await setState('order_lines', {
         current_page: currentBatch,
-        rows_fetched: totalOrderLinesProcessed,
+        rows_fetched: totalOrderLinesExtracted, // Track lines, not bookings
         progress_percentage: progressPct,
         status: 'running',
       });
       
-      console.log(`[order_lines] Batch ${currentBatch}/${totalBatches} complete: ${linesProcessed} lines, ${progressPct.toFixed(1)}% done`);
+      console.log(`[order_lines] Batch ${currentBatch}/${totalBatches} complete: ${linesExtracted} lines extracted (${totalOrderLinesExtracted} total), ${progressPct.toFixed(1)}% done`);
     }
     
     // Mark order_lines as complete
     await setState('order_lines', {
       status: 'success',
       progress_percentage: 100,
+      rows_fetched: totalOrderLinesExtracted,
     });
     
-    console.log(`[PHASE 3] ✓ Order lines complete: ${totalOrderLinesProcessed} processed from ${currentBatch} batches`);
+    console.log(`[PHASE 3] ✓ Order lines complete: ${totalOrderLinesExtracted} lines extracted from ${totalBookingsProcessed} bookings in ${currentBatch} batches`);
     
     // ===== PHASE 4: HEALTH CHECK =====
     console.log("\n[PHASE 4] === Health Check ===");

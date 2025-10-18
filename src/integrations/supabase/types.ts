@@ -173,7 +173,7 @@ export type Database = {
           created_at: string | null
           currency: string | null
           description: string | null
-          id: number
+          id: string
           is_delivery_fee: boolean | null
           is_discount: boolean | null
           quantity: number | null
@@ -186,7 +186,7 @@ export type Database = {
           created_at?: string | null
           currency?: string | null
           description?: string | null
-          id: number
+          id?: string
           is_delivery_fee?: boolean | null
           is_discount?: boolean | null
           quantity?: number | null
@@ -199,7 +199,7 @@ export type Database = {
           created_at?: string | null
           currency?: string | null
           description?: string | null
-          id?: number
+          id?: string
           is_delivery_fee?: boolean | null
           is_discount?: boolean | null
           quantity?: number | null
