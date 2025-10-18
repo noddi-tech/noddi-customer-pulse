@@ -1,7 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const DEPLOYMENT_VERSION = 'v5-force-fresh-2025-10-18';
+const DEPLOYMENT_VERSION = 'v6-fix-count-2025-10-18';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -455,23 +455,35 @@ Deno.serve(async (req) => {
     let currentBatch = startBatch;
     
     // Query total bookings count (only bookings WITH items)
-    const { count: totalBookingsCount } = await sb
+    // Fetch actual IDs to get accurate count (count query doesn't respect filter reliably)
+    const { data: bookingsWithItems, error: countError } = await sb
       .from('bookings')
-      .select('*', { count: 'exact', head: true })
+      .select('id')
       .not('booking_items', 'is', null);
     
-    const totalBatches = Math.ceil((totalBookingsCount || 0) / batchSize);
+    if (countError) {
+      console.error('[order_lines] Error counting bookings:', countError);
+      throw countError;
+    }
     
-    console.log(`[order_lines] Starting batch extraction: batch ${currentBatch}/${totalBatches}`);
+    const totalBookingsCount = bookingsWithItems?.length || 0;
+    console.log(`[DEPLOYMENT ${DEPLOYMENT_VERSION}] [order_lines] Found ${totalBookingsCount} bookings with booking_items`);
     
-    // Update state to running
-    await setState('order_lines', {
-      status: 'running',
-      total_records: totalBookingsCount,
-    });
+    const totalBatches = Math.ceil(totalBookingsCount / batchSize);
+    console.log(`[DEPLOYMENT ${DEPLOYMENT_VERSION}] [order_lines] Batch calculation: ${totalBookingsCount} bookings ÷ ${batchSize} per batch = ${totalBatches} total batches`);
     
-    // Process bookings in batches
-    while (currentBatch < totalBatches) {
+    if (totalBookingsCount === 0) {
+      console.log('[order_lines] No bookings with items found, skipping extraction');
+      await setState('order_lines', { status: 'completed', rows_fetched: 0 });
+    } else {
+      // Update state to running
+      await setState('order_lines', {
+        status: 'running',
+        total_records: totalBookingsCount,
+      });
+      
+      // Process bookings in batches
+      while (currentBatch < totalBatches) {
       console.log(`[DEPLOYMENT ${DEPLOYMENT_VERSION}] [order_lines] Starting batch extraction: batch ${currentBatch}/${totalBatches}`);
       
       // Fetch next batch of bookings WITH items from database (skip legacy bookings)
@@ -517,16 +529,17 @@ Deno.serve(async (req) => {
       });
       
       console.log(`[order_lines] Batch ${currentBatch}/${totalBatches} complete: ${linesExtracted} lines extracted (${totalOrderLinesExtracted} total), ${progressPct.toFixed(1)}% done`);
+      }
+      
+      // Mark order_lines as complete
+      await setState('order_lines', {
+        status: 'success',
+        progress_percentage: 100,
+        rows_fetched: totalOrderLinesExtracted,
+      });
+      
+      console.log(`[PHASE 3] ✓ Order lines complete: ${totalOrderLinesExtracted} lines extracted from ${totalBookingsProcessed} bookings in ${currentBatch} batches`);
     }
-    
-    // Mark order_lines as complete
-    await setState('order_lines', {
-      status: 'success',
-      progress_percentage: 100,
-      rows_fetched: totalOrderLinesExtracted,
-    });
-    
-    console.log(`[PHASE 3] ✓ Order lines complete: ${totalOrderLinesExtracted} lines extracted from ${totalBookingsProcessed} bookings in ${currentBatch} batches`);
     
     // ===== PHASE 4: HEALTH CHECK =====
     console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 4] === Health Check ===`);
