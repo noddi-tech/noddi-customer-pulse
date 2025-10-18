@@ -47,6 +47,14 @@ export function SyncStatusCard({
   const getSyncState = (): SyncState => {
     if (isComputingSegments) return "computing";
     if (hasError) return "error";
+    
+    // Special case: order_lines complete but bookings full sync still running
+    if (orderLinesStatus?.status === "success" && 
+        bookingsStatus?.sync_mode === "full" && 
+        bookingsStatus?.status === "running") {
+      return "syncing"; // Keep showing as syncing with special message
+    }
+    
     if (isRunning) return "syncing";
     
     // Check if all phases are complete
@@ -75,7 +83,14 @@ export function SyncStatusCard({
         let message = "";
         let lastRunAt: Date | null = null;
         
-        if (customersProgress < 100 && customersStatus?.status === "running") {
+        // Special case: order_lines complete but bookings full sync still running
+        if (orderLinesStatus?.status === "success" && 
+            bookingsStatus?.sync_mode === "full" && 
+            bookingsStatus?.status === "running") {
+          currentPhase = `Order Lines Extracted`;
+          message = `✓ Extracted ${orderLinesInDb.toLocaleString()} lines from ${orderLinesStatus?.total_records || 0} bookings. ⏳ More bookings syncing... Re-extract after completion for all data.`;
+          lastRunAt = bookingsStatus?.last_run_at ? new Date(bookingsStatus.last_run_at) : null;
+        } else if (customersProgress < 100 && customersStatus?.status === "running") {
           currentPhase = `Phase 1/3: Syncing customers... (${Math.round(customersProgress)}%)`;
           message = `${customersInDb.toLocaleString()} customers synced`;
           lastRunAt = customersStatus?.last_run_at ? new Date(customersStatus.last_run_at) : null;

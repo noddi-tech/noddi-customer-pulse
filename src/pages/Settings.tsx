@@ -399,7 +399,7 @@ export default function Settings() {
               return (remaining / rate) * 60; // in seconds
             };
 
-            // Estimate time remaining for full bookings sync
+            // Estimate time remaining for full bookings sync (in seconds)
             const estimateBookingsTime = () => {
               if (bookingsStatus?.sync_mode !== "full") return null;
               const currentPage = bookingsStatus.current_page || 0;
@@ -407,7 +407,7 @@ export default function Settings() {
                 ? Math.ceil(bookingsStatus.estimated_total / 100) 
                 : 300;
               const pagesRemaining = Math.max(0, estimatedPages - currentPage);
-              return pagesRemaining * 2; // 2 minutes per page (auto-sync interval)
+              return pagesRemaining * 120; // 2 minutes per page in seconds
             };
 
             // Determine sync state
@@ -466,28 +466,61 @@ export default function Settings() {
                   />
                 ))}
 
-                {/* Auto-sync status banner */}
-                <Alert className="mb-4">
-                  <RefreshCw className={cn(
-                    "h-4 w-4",
-                    isAnySyncRunning && "animate-spin"
-                  )} />
-                  <AlertTitle>Auto-Sync Status</AlertTitle>
-                  <AlertDescription>
-                    {isAnySyncRunning ? (
-                      <>
-                        ✅ <strong>Active</strong> - Syncing in background every 2 minutes
-                      </>
-                    ) : (
-                      <>
-                        💤 <strong>Idle</strong> - Next sync in ~2 minutes
-                        {syncStatus?.some(s => s.status === 'pending') && (
-                          <span className="ml-2">(waiting to start)</span>
-                        )}
-                      </>
-                    )}
-                  </AlertDescription>
-                </Alert>
+          {/* Auto-sync status banner */}
+          <Alert className="mb-4">
+            <RefreshCw className={cn(
+              "h-4 w-4",
+              isAnySyncRunning && "animate-spin"
+            )} />
+            <AlertTitle>Auto-Sync Status</AlertTitle>
+            <AlertDescription>
+              {isAnySyncRunning ? (
+                <>
+                  ✅ <strong>Active</strong> - Syncing in background every 2 minutes
+                </>
+              ) : (
+                <>
+                  💤 <strong>Idle</strong> - Next sync in ~2 minutes
+                  {syncStatus?.some(s => s.status === 'pending') && (
+                    <span className="ml-2">(waiting to start)</span>
+                  )}
+                </>
+              )}
+            </AlertDescription>
+          </Alert>
+
+          {/* Full Re-Sync Progress Indicator */}
+          {bookingsStatus?.sync_mode === "full" && bookingsStatus?.status === "running" && bookingsStatus.estimated_total && (
+            <Card className="mb-4 border-blue-500">
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  Full Re-Sync Progress
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  <Progress 
+                    value={Math.round(((bookingsStatus.current_page || 0) / Math.ceil(bookingsStatus.estimated_total / 100)) * 100)} 
+                    className="h-3"
+                  />
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>
+                      Page {bookingsStatus.current_page || 0} of ~{Math.ceil(bookingsStatus.estimated_total / 100)}
+                    </span>
+                    <span className="font-semibold text-blue-600 dark:text-blue-400">
+                      {Math.round(((bookingsStatus.current_page || 0) / Math.ceil(bookingsStatus.estimated_total / 100)) * 100)}%
+                    </span>
+                  </div>
+                  {estimateBookingsTime() && (
+                    <p className="text-xs text-muted-foreground">
+                      ~{Math.ceil((estimateBookingsTime() || 0) / 60)} minutes remaining
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
                 {/* Full sync warning */}
                 {bookingsStatus?.sync_mode === "full" && bookingsStatus?.status === "running" && (
@@ -554,7 +587,7 @@ export default function Settings() {
                         <SyncProgressBar
                           resource="customers"
                           progress={customersProgress}
-                          total={customersStatus?.estimated_total}
+                          total={customersStatus?.estimated_total || dbCounts?.customers}
                           inDb={dbCounts?.customers || 0}
                           status={customersStatus?.status || "pending"}
                           syncMode={customersStatus?.sync_mode}
@@ -567,13 +600,13 @@ export default function Settings() {
                         <SyncProgressBar
                           resource="bookings"
                           progress={bookingsProgress}
-                          total={bookingsStatus?.estimated_total}
+                          total={bookingsStatus?.estimated_total || dbCounts?.bookings}
                           inDb={dbCounts?.bookings || 0}
                           status={bookingsStatus?.status || "pending"}
                           syncMode={bookingsStatus?.sync_mode}
                           currentPage={bookingsStatus?.current_page}
                           lastRunAt={bookingsStatus?.last_run_at ? new Date(bookingsStatus.last_run_at) : null}
-                          estimatedTime={bookingsStatus?.sync_mode === "full" ? (estimateBookingsTime() || 0) * 60 : undefined}
+                          estimatedTime={bookingsStatus?.sync_mode === "full" ? estimateBookingsTime() : undefined}
                         />
                       </div>
 
@@ -581,15 +614,13 @@ export default function Settings() {
                         <SyncProgressBar
                           resource="order_lines"
                           progress={orderLinesProgress}
-                          total={orderLinesStatus?.total_records || Math.round(expectedOrderLines)}
+                          total={Math.round(expectedOrderLines)}
                           inDb={dbCounts?.order_lines || 0}
                           status={orderLinesStatus?.status || "pending"}
                           syncMode={orderLinesStatus?.sync_mode}
                           currentPage={orderLinesStatus?.current_page}
                           lastRunAt={orderLinesStatus?.last_run_at ? new Date(orderLinesStatus.last_run_at) : null}
-                          estimatedTime={orderLinesStatus?.total_records
-                            ? ((orderLinesStatus.total_records - (orderLinesStatus.current_page || 0) * 100) / 100) * 10
-                            : 0
+                          estimatedTime={estimateOrderLinesTime()
                           }
                         />
                       </div>

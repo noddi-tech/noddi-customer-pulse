@@ -75,9 +75,9 @@ export function SyncProgressBar({
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>
           {inDb.toLocaleString()} {total && `of ${total.toLocaleString()}`}
-          {syncMode === "full" && currentPage !== undefined && total && (
+          {syncMode === "full" && currentPage !== undefined && total && total > 0 && (
             <span className="ml-2 text-blue-600 dark:text-blue-400">
-              (Page {currentPage}/~{Math.ceil(total / 100)})
+              (Page {currentPage}/~{Math.ceil(Math.max(total, (currentPage || 0) * 100) / 100)})
             </span>
           )}
         </span>
