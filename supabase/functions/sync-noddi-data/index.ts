@@ -180,7 +180,22 @@ async function upsertOrderLines(bookingId: number, lines: any[]) {
     return;
   }
   
-  const mapped = lines.map((l) => ({
+  // DEDUPLICATE by order_line.id - keep first occurrence
+  const seen = new Set<number>();
+  const uniqueLines = lines.filter(l => {
+    if (seen.has(l.id)) {
+      console.log(`[order_lines] Duplicate ID ${l.id} in booking ${bookingId}, skipping`);
+      return false;
+    }
+    seen.add(l.id);
+    return true;
+  });
+  
+  if (uniqueLines.length !== lines.length) {
+    console.log(`[order_lines] Deduped ${lines.length} → ${uniqueLines.length} lines for booking ${bookingId}`);
+  }
+  
+  const mapped = uniqueLines.map((l) => ({
     id: l.id,
     booking_id: bookingId,
     sales_item_id: l.sales_item_id ?? null,
@@ -197,9 +212,9 @@ async function upsertOrderLines(bookingId: number, lines: any[]) {
   const { error } = await sb.from("order_lines").upsert(mapped, { onConflict: "id" });
   if (error) {
     console.error(`[order_lines] Error upserting for booking ${bookingId}:`, error);
-    failedOrderLines.set(bookingId, lines);
+    failedOrderLines.set(bookingId, uniqueLines);
   } else {
-    console.log(`[order_lines] ✓ Inserted ${lines.length} lines for booking ${bookingId}`);
+    console.log(`[order_lines] ✓ Inserted ${uniqueLines.length} lines for booking ${bookingId}`);
   }
 }
 
