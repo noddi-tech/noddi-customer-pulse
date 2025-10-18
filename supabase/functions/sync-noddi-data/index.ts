@@ -333,15 +333,30 @@ Deno.serve(async (req) => {
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
     const { data: stuckStates } = await sb
       .from('sync_state')
-      .select('resource, last_run_at')
+      .select('resource, last_run_at, status, sync_mode')
       .eq('status', 'running')
       .lt('last_run_at', tenMinutesAgo);
     
     if (stuckStates && stuckStates.length > 0) {
-      console.log(`[RECOVERY] Found ${stuckStates.length} stuck states, resetting to pending`);
+      console.log(`[RECOVERY] Found ${stuckStates.length} stuck running states, resetting to pending`);
       for (const state of stuckStates) {
         await setState(state.resource, { status: 'pending' });
-        console.log(`[RECOVERY] Reset ${state.resource} (stuck since ${state.last_run_at})`);
+        console.log(`[RECOVERY] Reset ${state.resource} to pending (stuck since ${state.last_run_at})`);
+      }
+    }
+    
+    // Also reset completed incremental syncs to pending (they should run again)
+    const { data: completedIncrementals } = await sb
+      .from('sync_state')
+      .select('resource, sync_mode, status')
+      .eq('status', 'completed')
+      .eq('sync_mode', 'incremental');
+    
+    if (completedIncrementals && completedIncrementals.length > 0) {
+      console.log(`[RECOVERY] Found ${completedIncrementals.length} completed incrementals, scheduling next run`);
+      for (const state of completedIncrementals) {
+        await setState(state.resource, { status: 'pending' });
+        console.log(`[RECOVERY] Scheduled ${state.resource} for incremental sync`);
       }
     }
     
@@ -369,9 +384,9 @@ Deno.serve(async (req) => {
 
     // Check timeout before starting
     if (Date.now() - functionStartTime > MAX_RUNTIME_MS) {
-      console.log('[TIMEOUT] Function approaching time limit, saving progress and exiting');
-      await setState("customers", { status: "pending" });
-      await setState("bookings", { status: "pending" });
+      console.log('[TIMEOUT] Function approaching time limit before Phase 1, exiting');
+      await setState("customers", { status: "pending", current_page: customersStartPage });
+      await setState("bookings", { status: "pending", current_page: bookingsStartPage });
       return new Response(JSON.stringify({ ok: true, timeout: true }), {
         headers: { ...corsHeaders, "content-type": "application/json" }
       });
@@ -417,17 +432,18 @@ Deno.serve(async (req) => {
     }
     
     const customersReachedEnd = customerPages < customersMaxPages;
-    await setState("customers", { 
-      status: customersReachedEnd ? 'completed' : 'running',
-      sync_mode: customersReachedEnd && customersSyncMode === 'initial' ? 'incremental' : customersSyncMode,
-    });
+    // Only update sync_mode, don't set status yet (will be set at end)
+    if (customersReachedEnd && customersSyncMode === 'initial') {
+      await setState("customers", { sync_mode: 'incremental' });
+    }
     
     console.log(`[PHASE 1] ✓ Customers complete: ${usersFetched} synced`);
 
     // Check timeout before Phase 2
     if (Date.now() - functionStartTime > MAX_RUNTIME_MS) {
       console.log('[TIMEOUT] Function approaching time limit after Phase 1, exiting');
-      await setState("bookings", { status: "pending" });
+      await setState("customers", { status: customersReachedEnd ? 'completed' : 'pending' });
+      await setState("bookings", { status: "pending", current_page: bookingsStartPage });
       return new Response(JSON.stringify({ ok: true, timeout: true, usersFetched }), {
         headers: { ...corsHeaders, "content-type": "application/json" }
       });
@@ -475,16 +491,18 @@ Deno.serve(async (req) => {
     }
     
     const bookingsReachedEnd = bookingPages < bookingsMaxPages;
-    await setState("bookings", { 
-      status: bookingsReachedEnd ? 'completed' : 'running',
-      sync_mode: bookingsReachedEnd && bookingsSyncMode === 'initial' ? 'incremental' : bookingsSyncMode,
-    });
+    // Only update sync_mode, don't set status yet (will be set at end)
+    if (bookingsReachedEnd && bookingsSyncMode === 'initial') {
+      await setState("bookings", { sync_mode: 'incremental' });
+    }
     
     console.log(`[PHASE 2] ✓ Bookings complete: ${bookingsFetched} synced`);
 
     // Check timeout before Phase 3
     if (Date.now() - functionStartTime > MAX_RUNTIME_MS) {
       console.log('[TIMEOUT] Function approaching time limit after Phase 2, exiting');
+      await setState("customers", { status: customersReachedEnd ? 'completed' : 'pending' });
+      await setState("bookings", { status: bookingsReachedEnd ? 'completed' : 'pending' });
       return new Response(JSON.stringify({ ok: true, timeout: true, usersFetched, bookingsFetched }), {
         headers: { ...corsHeaders, "content-type": "application/json" }
       });
@@ -654,6 +672,14 @@ Deno.serve(async (req) => {
       key: "sync_health",
       value: health,
       updated_at: new Date().toISOString()
+    });
+
+    // Reset status before final return - 'completed' if all done, 'pending' if more pages remain
+    await setState("customers", { 
+      status: customersReachedEnd ? 'completed' : 'pending' 
+    });
+    await setState("bookings", { 
+      status: bookingsReachedEnd ? 'completed' : 'pending' 
     });
 
     console.log("=== SYNC COMPLETE ===\n");

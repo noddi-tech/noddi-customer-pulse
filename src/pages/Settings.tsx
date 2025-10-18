@@ -60,6 +60,9 @@ export default function Settings() {
     resource: string;
     message: string;
   }>>([]);
+  
+  // Increase stalled threshold from 5 to 15 minutes
+  const STALLED_THRESHOLD_MS = 15 * 60 * 1000;
 
   useEffect(() => {
     if (syncStatus) {
@@ -424,12 +427,12 @@ export default function Settings() {
               return remainingInRun * secondsPerPage;
             };
 
-            // Detect stalled sync (no activity for >5 minutes)
+            // Detect stalled sync (no activity for >15 minutes)
             const isSyncStalled = (status: any) => {
               if (status?.status !== "running") return false;
               if (!status.last_run_at) return false;
               const minutesSinceLastRun = (Date.now() - new Date(status.last_run_at).getTime()) / 60000;
-              return minutesSinceLastRun > 5;
+              return minutesSinceLastRun > 15;
             };
             
             const isCustomersStalled = isSyncStalled(customersStatus);
@@ -492,77 +495,69 @@ export default function Settings() {
                   />
                 ))}
 
-          {/* Auto-sync status banner */}
-          <Alert className="mb-4">
-            <RefreshCw className={cn(
-              "h-4 w-4",
-              isAnySyncRunning && "animate-spin"
-            )} />
-            <AlertTitle>Auto-Sync Status</AlertTitle>
-            <AlertDescription>
-              {isAnySyncRunning ? (
-                <>
-                  ✅ <strong>Active</strong> - Syncing in background every 2 minutes
-                </>
-              ) : (
-                <>
-                  💤 <strong>Idle</strong> - Next sync in ~2 minutes
-                  {syncStatus?.some(s => s.status === 'pending') && (
-                    <span className="ml-2">(waiting to start)</span>
-                  )}
-                </>
-              )}
-            </AlertDescription>
-          </Alert>
-
-          {/* PART 4: Sync Running Smoothly indicator */}
-          {!isCustomersStalled && !isBookingsStalled && !isOrderLinesStalled && isRunning && (
-            <Alert className="mb-4 border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/30">
-              <CheckCircle2 className="h-4 w-4 text-green-600" />
-              <AlertTitle>✅ Sync Running Smoothly</AlertTitle>
-              <AlertDescription>
-                <p>
-                  Auto-sync is actively processing data. 
-                  <strong> No action needed</strong> - you can safely leave this page.
-                </p>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Current progress: {Math.round((customersProgress + bookingsProgress + orderLinesProgress) / 3)}% overall
-                </p>
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {/* Stalled Sync Warning */}
-          {(isCustomersStalled || isBookingsStalled || isOrderLinesStalled) && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>⚠️ Sync Appears Stalled</AlertTitle>
-              <AlertDescription>
-                <p>
-                  No database updates in {Math.max(
-                    isCustomersStalled && customersStatus?.last_run_at ? Math.ceil((Date.now() - new Date(customersStatus.last_run_at).getTime()) / 60000) : 0,
-                    isBookingsStalled && bookingsStatus?.last_run_at ? Math.ceil((Date.now() - new Date(bookingsStatus.last_run_at).getTime()) / 60000) : 0,
-                    isOrderLinesStalled && orderLinesStatus?.last_run_at ? Math.ceil((Date.now() - new Date(orderLinesStatus.last_run_at).getTime()) / 60000) : 0
-                  )} minutes. Auto-sync may have stopped due to an error or timeout.
-                </p>
-                <div className="mt-3 flex gap-2">
-                  <Button size="sm" onClick={async () => {
-                    await supabase.functions.invoke('sync-noddi-data');
-                    toast.info("Attempting to resume sync...");
-                  }}>
-                    Resume Sync
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => {
-                    window.open('https://supabase.com/dashboard/project/wylrkmtpjodunmnwncej/functions/sync-noddi-data/logs', '_blank');
-                  }}>
-                    View Logs
-                  </Button>
+          {/* CONSOLIDATED STATUS - Show once at top */}
+          <Card className="mb-6 border-2">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                {(isCustomersStalled || isBookingsStalled || isOrderLinesStalled) ? (
+                  <AlertCircle className="h-5 w-5 text-destructive" />
+                ) : isRunning ? (
+                  <RefreshCw className="h-5 w-5 animate-spin text-primary" />
+                ) : (
+                  <CheckCircle2 className="h-5 w-5 text-muted-foreground" />
+                )}
+                Sync Status
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {(isCustomersStalled || isBookingsStalled || isOrderLinesStalled) ? (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>⚠️ Sync Appears Stalled</AlertTitle>
+                  <AlertDescription className="space-y-2">
+                    <p>
+                      No database updates in {Math.max(
+                        isCustomersStalled && customersStatus?.last_run_at ? Math.ceil((Date.now() - new Date(customersStatus.last_run_at).getTime()) / 60000) : 0,
+                        isBookingsStalled && bookingsStatus?.last_run_at ? Math.ceil((Date.now() - new Date(bookingsStatus.last_run_at).getTime()) / 60000) : 0,
+                        isOrderLinesStalled && orderLinesStatus?.last_run_at ? Math.ceil((Date.now() - new Date(orderLinesStatus.last_run_at).getTime()) / 60000) : 0
+                      )} minutes. The sync might need a manual restart.
+                    </p>
+                    <div className="mt-3 flex gap-2">
+                      <Button size="sm" onClick={async () => {
+                        await supabase.functions.invoke('sync-noddi-data');
+                        toast.info("Attempting to resume sync...");
+                      }}>
+                        Resume Sync
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => {
+                        window.open('https://supabase.com/dashboard/project/wylrkmtpjodunmnwncej/functions/sync-noddi-data/logs', '_blank');
+                      }}>
+                        View Logs
+                      </Button>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              ) : isRunning ? (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-green-600 dark:text-green-400">
+                    ✅ Syncing automatically every 2 minutes
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Overall progress: {Math.round((customersProgress + bookingsProgress + orderLinesProgress) / 3)}%
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    You can safely leave this page - sync continues in background.
+                  </p>
                 </div>
-              </AlertDescription>
-            </Alert>
-          )}
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Sync is idle. {syncStatus?.some(s => s.status === 'pending') ? 'Next sync in ~2 minutes.' : 'Enable auto-sync to keep data updated.'}
+                </p>
+              )}
+            </CardContent>
+          </Card>
 
-          {/* Full Re-Sync Progress Indicator */}
+          {/* Full Re-Sync Progress - Visual only, no duplicate messages */}
           {bookingsStatus?.sync_mode === "full" && bookingsStatus?.status === "running" && bookingsStatus.estimated_total && (
             <Card className="mb-4 border-blue-500">
               <CardHeader>
@@ -604,26 +599,6 @@ export default function Settings() {
               </CardContent>
             </Card>
           )}
-
-                {/* Full sync warning */}
-                {bookingsStatus?.sync_mode === "full" && bookingsStatus?.status === "running" && (
-                  <Alert className="mb-4">
-                    <Info className="h-4 w-4" />
-                    <AlertTitle>Full Data Re-Sync in Progress</AlertTitle>
-                    <AlertDescription className="space-y-2">
-                      <p>
-                        Fetching ALL {bookingsStatus.estimated_total?.toLocaleString() || '~21,000'} bookings 
-                        from Noddi API to populate order line data.
-                      </p>
-                      <p>
-                        <strong>Estimated time:</strong> ~{Math.ceil((estimateBookingsTime() || 0) / 60)} minutes remaining (this run)
-                      </p>
-                      <p className="text-xs">
-                        ✅ You can safely leave this page. Auto-sync continues in the background.
-                      </p>
-                    </AlertDescription>
-                  </Alert>
-                )}
 
                 <SyncStatusCard
                   customersProgress={customersProgress}
