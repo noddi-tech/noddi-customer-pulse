@@ -21,6 +21,12 @@ const sb = createClient(
 const API = Deno.env.get("NODDI_API_BASE_URL")!;
 const KEY = Deno.env.get("NODDI_API_KEY")!;
 
+// PHASE 1: Type safety helper
+function toNum(v: any): number | null {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 async function getState(resource: string) {
   const { data } = await sb
     .from("sync_state")
@@ -135,144 +141,137 @@ async function upsertCustomers(rows: any[]) {
   }
 }
 
+// PHASE 2: Rewrite with correct user_id mapping
 async function upsertBookings(rows: any[]) {
   if (!rows.length) return;
   
-  // Batch upsert in chunks of 100 for better performance
-  const BATCH_SIZE = 100;
-  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-    const batch = rows.slice(i, i + BATCH_SIZE);
-    const mapped = batch.map((b) => ({
-      id: b.id,
-      user_id: b.user_group?.users?.[0]?.id ?? null, // FIX: Extract from user_group.users[0].id
-      user_group_id: b.user_group?.id ?? null,
-      date: b.date ?? null,
-      started_at: b.delivery_window_starts_at || (b.date ? new Date(b.date).toISOString() : null),
-      completed_at: b.completed_at ?? null,
-      status_label: b.status?.label ?? b.status_label ?? null,
-      is_cancelled: !!b.is_cancelled,
-      is_fully_paid: b.order?.is_fully_paid ?? b.is_fully_paid ?? null,
-      is_partially_unable_to_complete: !!b.is_partially_unable_to_complete,
-      is_fully_unable_to_complete: !!b.is_fully_unable_to_complete,
-      updated_at: b.updated_at ?? null
-    }));
-    const { error } = await sb.from("bookings").upsert(mapped, { onConflict: "id" });
-    if (error) console.error("Error upserting bookings batch:", error);
+  const mapped = rows.map((b: any) => {
+    const ug = b?.user_group ?? {};
+    const primaryUserId =
+      ug?.users && Array.isArray(ug.users) && ug.users.length > 0
+        ? ug.users[0]?.id
+        : null;
+
+    return {
+      id: toNum(b?.id),
+      user_group_id: toNum(ug?.id),
+      user_id: toNum(primaryUserId),
+      status_label: b?.status?.label ?? null,
+      started_at: b?.started_at ?? b?.estimated_service_start ?? null,
+      completed_at: b?.completed_at ?? null,
+      date: b?.date ?? null,
+      is_cancelled: Boolean(b?.is_cancelled),
+      is_fully_paid: b?.order?.is_fully_paid ?? null,
+      is_partially_unable_to_complete: Boolean(b?.is_partially_unable_to_complete),
+      is_fully_unable_to_complete: Boolean(b?.is_fully_unable_to_complete),
+      updated_at: b?.updated_at ?? null,
+    };
+  });
+
+  const { error } = await sb.from('bookings').upsert(mapped, { onConflict: 'id' });
+  if (error) {
+    console.error('[bookings] Error upserting:', error);
+    throw error;
   }
+  
+  console.log(`[bookings] ✓ Upserted ${mapped.length} bookings`);
 }
 
-// Track failed order lines for retry
-const failedOrderLines = new Map<number, any[]>();
+// PHASE 3: Flatten booking_items[].sales_items[] into order_lines
+async function upsertOrderLinesForBookings(bookingsPage: any[]) {
+  const lines: any[] = [];
 
-async function upsertOrderLines(bookingId: number, lines: any[]) {
-  if (!lines?.length) return;
-  
-  // First verify the booking exists
-  const { data: bookingExists } = await sb
-    .from("bookings")
-    .select("id")
-    .eq("id", bookingId)
-    .maybeSingle();
-  
-  if (!bookingExists) {
-    console.log(`[order_lines] Booking ${bookingId} not found, deferring ${lines.length} lines`);
-    failedOrderLines.set(bookingId, lines);
-    return;
+  for (const b of bookingsPage) {
+    const bookingId = toNum(b?.id);
+    if (!bookingId) continue;
+    
+    const items = Array.isArray(b?.booking_items) ? b.booking_items : [];
+
+    for (const bi of items) {
+      const sales = Array.isArray(bi?.sales_items) ? bi.sales_items : [];
+      for (const si of sales) {
+        const id = toNum(si?.id);
+        if (!id) continue;
+
+        lines.push({
+          id,
+          booking_id: bookingId,
+          sales_item_id: id,
+          description: si?.name ?? si?.name_internal ?? bi?.title ?? null,
+          quantity: Number(si?.quantity ?? 1),
+          amount_gross: Number(si?.price?.amount ?? si?.amount_gross?.amount ?? 0),
+          amount_vat: Number(si?.amount_vat?.amount ?? 0),
+          currency: si?.price?.currency ?? si?.currency ?? 'NOK',
+          is_discount: Boolean(si?.is_discount ?? false),
+          is_delivery_fee: Boolean(si?.is_delivery_fee ?? false),
+          created_at: si?.created_at ?? b?.created_at ?? null,
+        });
+      }
+    }
   }
-  
-  // DEDUPLICATE by order_line.id - keep first occurrence
+
+  if (lines.length === 0) return;
+
+  // Deduplicate by ID
   const seen = new Set<number>();
   const uniqueLines = lines.filter(l => {
     if (seen.has(l.id)) {
-      console.log(`[order_lines] Duplicate ID ${l.id} in booking ${bookingId}, skipping`);
+      console.log(`[order_lines] Duplicate ID ${l.id}, skipping`);
       return false;
     }
     seen.add(l.id);
     return true;
   });
-  
+
   if (uniqueLines.length !== lines.length) {
-    console.log(`[order_lines] Deduped ${lines.length} → ${uniqueLines.length} lines for booking ${bookingId}`);
+    console.log(`[order_lines] Deduped ${lines.length} → ${uniqueLines.length} lines`);
   }
-  
-  const mapped = uniqueLines.map((l) => ({
-    id: l.id,
-    booking_id: bookingId,
-    sales_item_id: l.sales_item_id ?? null,
-    description: l.description ?? l.name ?? null,
-    quantity: Number(l.quantity ?? 1),
-    amount_gross: Number(l.amount_gross?.amount ?? l.amount ?? 0),
-    amount_vat: Number(l.amount_vat?.amount ?? 0),
-    currency: l.currency ?? l.amount_gross?.currency ?? "NOK",
-    is_discount: !!l.is_discount,
-    is_delivery_fee: !!l.is_delivery_fee,
-    created_at: l.created_at ?? null
-  }));
-  
-  const { error } = await sb.from("order_lines").upsert(mapped, { onConflict: "id" });
+
+  const { error } = await sb.from('order_lines').upsert(uniqueLines, { onConflict: 'id' });
   if (error) {
-    console.error(`[order_lines] Error upserting for booking ${bookingId}:`, error);
-    failedOrderLines.set(bookingId, uniqueLines);
-  } else {
-    console.log(`[order_lines] ✓ Inserted ${uniqueLines.length} lines for booking ${bookingId}`);
-  }
-}
-
-// Retry failed order lines after bookings are synced
-async function retryFailedOrderLines() {
-  if (failedOrderLines.size === 0) return;
-  
-  console.log(`[order_lines] Retrying ${failedOrderLines.size} failed bookings...`);
-  let retrySuccess = 0;
-  
-  for (const [bookingId, lines] of failedOrderLines.entries()) {
-    await upsertOrderLines(bookingId, lines);
-    if (!failedOrderLines.has(bookingId)) retrySuccess++;
+    console.error('[order_lines] Error upserting:', error);
+    throw error;
   }
   
-  console.log(`[order_lines] Retry complete: ${retrySuccess}/${failedOrderLines.size} succeeded`);
+  console.log(`[order_lines] ✓ Upserted ${uniqueLines.length} lines`);
 }
 
 
+// PHASE 4: Restructure main sync flow - Sequential phasing
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    console.log("Starting sync...");
+    console.log("=== SYNC START ===");
     
-    // Get current sync state
     const customersState = await getState("customers");
     const bookingsState = await getState("bookings");
     
-    // Determine sync mode and dynamic page limits
     const customersSyncMode = customersState.sync_mode || 'initial';
     const bookingsSyncMode = bookingsState.sync_mode || 'initial';
     
-    // Page limits: In initial mode, fetch many pages per run to complete faster
-    // In incremental mode, only need a few pages to catch up
-    const customersMaxPages = customersSyncMode === 'initial' ? 300 : 3;
-    const bookingsMaxPages = bookingsSyncMode === 'initial' ? 300 : 3;
+    // Bounded work per invocation (5 pages max to avoid timeouts)
+    const customersMaxPages = 5;
+    const bookingsMaxPages = 5;
     
-    // Resume from last successful page
     const customersStartPage = customersSyncMode === 'initial' ? (customersState.current_page || 0) : 0;
     const bookingsStartPage = bookingsSyncMode === 'initial' ? (bookingsState.current_page || 0) : 0;
     
-    console.log(`[sync] Customers: ${customersSyncMode} mode, starting page ${customersStartPage}, max ${customersMaxPages} pages, known max_id=${customersState.max_id_seen}`);
-    console.log(`[sync] Bookings: ${bookingsSyncMode} mode, starting page ${bookingsStartPage}, max ${bookingsMaxPages} pages, known max_id=${bookingsState.max_id_seen}`);
+    console.log(`[PHASE 1] Customers: ${customersSyncMode} mode, page ${customersStartPage}`);
+    console.log(`[PHASE 2] Bookings: ${bookingsSyncMode} mode, page ${bookingsStartPage}`);
     
-    // Reset sync state for current run
     await setState("customers", { status: "running", error_message: null });
     await setState("bookings", { status: "running", error_message: null });
 
-    // CUSTOMERS
+    // ===== PHASE 1: SYNC CUSTOMERS COMPLETELY =====
+    console.log("\n[PHASE 1] === Syncing Customers ===");
     let usersFetched = 0;
     let customerPages = 0;
     let customersMaxIdSeen = customersState.max_id_seen || 0;
-    let customersFoundNew = false;
     
-    for await (const { rows, page_index, maxIdInPage, hasNewRecords, totalCount } of paged(
+    for await (const { rows, page_index, maxIdInPage, totalCount } of paged(
       "/v1/users/", 
       { page_size: 100 },
       customersMaxPages,
@@ -280,16 +279,9 @@ Deno.serve(async (req) => {
       customersSyncMode,
       customersStartPage
     )) {
-      if (customerPages === 0 && rows.length > 0) {
-        console.log("[sync] sample customer:", JSON.stringify(rows[0], null, 2));
-        
-        // Store Noddi total count from first page
-        if (totalCount !== undefined) {
-          await setState("customers", { estimated_total: totalCount });
-        }
+      if (customerPages === 0 && totalCount !== undefined) {
+        await setState("customers", { estimated_total: totalCount });
       }
-      
-      if (hasNewRecords) customersFoundNew = true;
       
       await upsertCustomers(rows);
       usersFetched += rows.length;
@@ -301,48 +293,32 @@ Deno.serve(async (req) => {
         customersState.high_watermark ?? "1970-01-01"
       );
       
-      // Update counters (this run only)
-      const runFetched = usersFetched;
-      const totalInDb = (customersState.total_records || 0) + rows.length;
-      
-      // Calculate progress for initial sync (estimate 10k total customers)
-      const progress = customersSyncMode === 'initial' ? Math.min((page_index / 100) * 100, 99) : null;
-      
       await setState("customers", { 
         high_watermark: maxUpdated, 
         max_id_seen: customersMaxIdSeen,
-        rows_fetched: runFetched, // This run only
-        total_records: totalInDb, // Cumulative
-        current_page: page_index + 1, // Track where we are
-        progress_percentage: progress
+        rows_fetched: usersFetched,
+        current_page: page_index + 1,
       });
       
-      console.log(`[sync] customers page ${page_index}: ${rows.length} rows, max_id=${maxIdInPage}, new=${hasNewRecords}`);
+      console.log(`[PHASE 1] customers page ${page_index}: ${rows.length} rows`);
     }
-    console.log(`Synced ${usersFetched} customers across ${customerPages} pages`);
     
-    // Switch to incremental ONLY if we fetched less than the max pages (hit end of data)
-    // This means we got a 404 or empty page = all historical data is synced
     const customersReachedEnd = customerPages < customersMaxPages;
-    const newCustomersMode = customersReachedEnd && customersSyncMode === 'initial' ? 'incremental' : customersSyncMode;
-    
-    if (customersReachedEnd && customersSyncMode === 'initial') {
-      console.log(`[sync] ✓ Customers initial sync COMPLETE - switching to incremental mode`);
-    }
-    
     await setState("customers", { 
       status: customersReachedEnd ? 'completed' : 'running',
-      sync_mode: newCustomersMode,
-      progress_percentage: customersReachedEnd ? 100 : null
+      sync_mode: customersReachedEnd && customersSyncMode === 'initial' ? 'incremental' : customersSyncMode,
     });
+    
+    console.log(`[PHASE 1] ✓ Customers complete: ${usersFetched} synced`);
 
-    // BOOKINGS
+    // ===== PHASE 2: SYNC BOOKINGS COMPLETELY (WITHOUT order_lines) =====
+    console.log("\n[PHASE 2] === Syncing Bookings ===");
     let bookingsFetched = 0;
     let bookingPages = 0;
     let bookingsMaxIdSeen = bookingsState.max_id_seen || 0;
-    let bookingsFoundNew = false;
+    const allBookingsForOrderLines: any[] = []; // Collect for Phase 3
     
-    for await (const { rows, page_index, maxIdInPage, hasNewRecords, totalCount } of paged(
+    for await (const { rows, page_index, maxIdInPage, totalCount } of paged(
       "/v1/bookings/", 
       { page_size: 100 },
       bookingsMaxPages,
@@ -350,40 +326,13 @@ Deno.serve(async (req) => {
       bookingsSyncMode,
       bookingsStartPage
     )) {
-      if (bookingPages === 0 && rows.length > 0) {
-        console.log("[sync] sample booking:", JSON.stringify(rows[0], null, 2));
-        
-        // Store Noddi total count from first page
-        if (totalCount !== undefined) {
-          await setState("bookings", { estimated_total: totalCount });
-        }
+      if (bookingPages === 0 && totalCount !== undefined) {
+        await setState("bookings", { estimated_total: totalCount });
       }
       
-      if (hasNewRecords) bookingsFoundNew = true;
-      
-      await upsertBookings(rows);
+      await upsertBookings(rows); // Just bookings, no order_lines yet
+      allBookingsForOrderLines.push(...rows); // Save for Phase 3
       bookingsFetched += rows.length;
-      
-      // FIX: Extract order lines from booking_items[].sales_items[]
-      for (const b of rows) {
-        const orderLines = (b.booking_items || []).flatMap((item: any) => 
-          (item.sales_items || []).map((si: any) => ({
-            id: si.id,
-            sales_item_id: si.id,
-            description: si.name ?? si.name_internal ?? null,
-            quantity: 1,
-            amount_gross: { amount: si.price?.amount ?? 0, currency: si.price?.currency ?? 'NOK' },
-            currency: si.price?.currency ?? 'NOK',
-            is_discount: si.sales_item_type?.value === 2, // Addon type 2 might be discount
-            is_delivery_fee: false,
-            created_at: b.created_at
-          }))
-        );
-        if (orderLines.length > 0) {
-          await upsertOrderLines(b.id, orderLines);
-        }
-      }
-      
       bookingPages++;
       bookingsMaxIdSeen = Math.max(bookingsMaxIdSeen, maxIdInPage);
       
@@ -392,44 +341,31 @@ Deno.serve(async (req) => {
         bookingsState.high_watermark ?? "1970-01-01"
       );
       
-      // Update counters (this run only)
-      const runFetched = bookingsFetched;
-      const totalInDb = (bookingsState.total_records || 0) + rows.length;
-      
-      // Calculate progress for initial sync (estimate 250 pages total)
-      const progress = bookingsSyncMode === 'initial' ? Math.min((page_index / 250) * 100, 99) : null;
-      
       await setState("bookings", { 
         high_watermark: maxUpdated,
         max_id_seen: bookingsMaxIdSeen,
-        rows_fetched: runFetched, // This run only
-        total_records: totalInDb, // Cumulative
-        current_page: page_index + 1, // Track where we are
-        progress_percentage: progress
+        rows_fetched: bookingsFetched,
+        current_page: page_index + 1,
       });
       
-      console.log(`[sync] bookings page ${page_index}: ${rows.length} rows, max_id=${maxIdInPage}, new=${hasNewRecords}`);
+      console.log(`[PHASE 2] bookings page ${page_index}: ${rows.length} rows`);
     }
-    console.log(`Synced ${bookingsFetched} bookings across ${bookingPages} pages`);
     
-    // Switch to incremental ONLY if we fetched less than the max pages (hit end of data)
     const bookingsReachedEnd = bookingPages < bookingsMaxPages;
-    const newBookingsMode = bookingsReachedEnd && bookingsSyncMode === 'initial' ? 'incremental' : bookingsSyncMode;
-    
-    if (bookingsReachedEnd && bookingsSyncMode === 'initial') {
-      console.log(`[sync] ✓ Bookings initial sync COMPLETE - switching to incremental mode`);
-    }
-    
     await setState("bookings", { 
       status: bookingsReachedEnd ? 'completed' : 'running',
-      sync_mode: newBookingsMode,
-      progress_percentage: bookingsReachedEnd ? 100 : null
+      sync_mode: bookingsReachedEnd && bookingsSyncMode === 'initial' ? 'incremental' : bookingsSyncMode,
     });
-
-    // PHASE 1: Retry failed order lines now that all bookings are synced
-    await retryFailedOrderLines();
     
-    // PHASE 5: Add sync health checks
+    console.log(`[PHASE 2] ✓ Bookings complete: ${bookingsFetched} synced`);
+
+    // ===== PHASE 3: SYNC ORDER LINES (AFTER bookings exist) =====
+    console.log("\n[PHASE 3] === Syncing Order Lines ===");
+    await upsertOrderLinesForBookings(allBookingsForOrderLines);
+    console.log(`[PHASE 3] ✓ Order lines complete`);
+    
+    // ===== PHASE 4: HEALTH CHECK =====
+    console.log("\n[PHASE 4] === Health Check ===");
     const [customersCount, bookingsCount, orderLinesCount, bookingsWithUser] = await Promise.all([
       sb.from("customers").select("id", { count: "exact", head: true }),
       sb.from("bookings").select("id", { count: "exact", head: true }),
@@ -444,36 +380,30 @@ Deno.serve(async (req) => {
       order_lines_total: orderLinesCount.count || 0,
       avg_order_lines_per_booking: bookingsCount.count ? (orderLinesCount.count || 0) / bookingsCount.count : 0,
       orphaned_bookings: (bookingsCount.count || 0) - (bookingsWithUser.count || 0),
-      failed_order_lines: failedOrderLines.size,
       synced_at: new Date().toISOString()
     };
     
-    console.log("[sync] Health check:", health);
+    console.log("[PHASE 4] Health:", health);
     
-    // Store health metrics for UI display
     await sb.from("settings").upsert({
       key: "sync_health",
       value: health,
       updated_at: new Date().toISOString()
     });
 
+    console.log("=== SYNC COMPLETE ===\n");
+
     return new Response(
-      JSON.stringify({ 
-        ok: true, 
-        usersFetched, 
-        bookingsFetched,
-        customersMode: newCustomersMode,
-        bookingsMode: newBookingsMode,
-        customersComplete: customersReachedEnd,
-        bookingsComplete: bookingsReachedEnd,
-        health
-      }), 
+      JSON.stringify({ ok: true, health, usersFetched, bookingsFetched }), 
       { headers: { ...corsHeaders, "content-type": "application/json" } }
     );
+    
   } catch (e) {
     console.error("Sync error:", e);
     await setState("customers", { status: "error", error_message: String(e) });
     await setState("bookings", { status: "error", error_message: String(e) });
+    
+    // Always return CORS headers on error
     return new Response(
       JSON.stringify({ ok: false, error: String(e) }), 
       { status: 500, headers: { ...corsHeaders, "content-type": "application/json" } }
