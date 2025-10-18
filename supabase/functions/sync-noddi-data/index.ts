@@ -329,6 +329,25 @@ Deno.serve(async (req) => {
   try {
     console.log("=== SYNC START ===");
     
+    // RECOVERY: Reset stuck "running" states older than 10 minutes
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const { data: stuckStates } = await sb
+      .from('sync_state')
+      .select('resource, last_run_at')
+      .eq('status', 'running')
+      .lt('last_run_at', tenMinutesAgo);
+    
+    if (stuckStates && stuckStates.length > 0) {
+      console.log(`[RECOVERY] Found ${stuckStates.length} stuck states, resetting to pending`);
+      for (const state of stuckStates) {
+        await setState(state.resource, { status: 'pending' });
+        console.log(`[RECOVERY] Reset ${state.resource} (stuck since ${state.last_run_at})`);
+      }
+    }
+    
+    const functionStartTime = Date.now();
+    const MAX_RUNTIME_MS = 8 * 60 * 1000; // 8 minutes (leave 2min buffer before 10min timeout)
+    
     const customersState = await getState("customers");
     const bookingsState = await getState("bookings");
     
@@ -348,6 +367,16 @@ Deno.serve(async (req) => {
     await setState("customers", { status: "running", error_message: null });
     await setState("bookings", { status: "running", error_message: null });
 
+    // Check timeout before starting
+    if (Date.now() - functionStartTime > MAX_RUNTIME_MS) {
+      console.log('[TIMEOUT] Function approaching time limit, saving progress and exiting');
+      await setState("customers", { status: "pending" });
+      await setState("bookings", { status: "pending" });
+      return new Response(JSON.stringify({ ok: true, timeout: true }), {
+        headers: { ...corsHeaders, "content-type": "application/json" }
+      });
+    }
+    
     // ===== PHASE 1: SYNC CUSTOMERS COMPLETELY =====
     console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 1] === Syncing Customers ===`);
     let usersFetched = 0;
@@ -395,6 +424,15 @@ Deno.serve(async (req) => {
     
     console.log(`[PHASE 1] ✓ Customers complete: ${usersFetched} synced`);
 
+    // Check timeout before Phase 2
+    if (Date.now() - functionStartTime > MAX_RUNTIME_MS) {
+      console.log('[TIMEOUT] Function approaching time limit after Phase 1, exiting');
+      await setState("bookings", { status: "pending" });
+      return new Response(JSON.stringify({ ok: true, timeout: true, usersFetched }), {
+        headers: { ...corsHeaders, "content-type": "application/json" }
+      });
+    }
+    
     // ===== PHASE 2: SYNC BOOKINGS COMPLETELY (WITHOUT order_lines) =====
     console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 2] === Syncing Bookings ===`);
     let bookingsFetched = 0;
@@ -444,37 +482,39 @@ Deno.serve(async (req) => {
     
     console.log(`[PHASE 2] ✓ Bookings complete: ${bookingsFetched} synced`);
 
-    // ===== PHASE 3: SYNC ORDER LINES (Process ALL bookings from DB) =====
+    // Check timeout before Phase 3
+    if (Date.now() - functionStartTime > MAX_RUNTIME_MS) {
+      console.log('[TIMEOUT] Function approaching time limit after Phase 2, exiting');
+      return new Response(JSON.stringify({ ok: true, timeout: true, usersFetched, bookingsFetched }), {
+        headers: { ...corsHeaders, "content-type": "application/json" }
+      });
+    }
+    
+    // ===== PHASE 3: SYNC ORDER LINES (Process only NEWLY synced bookings) =====
     console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 3] === Syncing Order Lines ===`);
     
     const orderLinesState = await getState('order_lines');
     const startBatch = orderLinesState.current_page || 0;
-    const batchSize = 50; // Process 50 bookings at a time (changed from 100 for cache busting)
-    let totalOrderLinesExtracted = 0; // Track actual order lines extracted
+    const batchSize = 50;
+    let totalOrderLinesExtracted = 0;
     let totalBookingsProcessed = 0;
     let currentBatch = startBatch;
     
-    // Query total bookings count (only bookings WITH items)
-    // Fetch actual IDs to get accurate count (count query doesn't respect filter reliably)
-    const { data: bookingsWithItems, error: countError } = await sb
-      .from('bookings')
-      .select('id')
-      .not('booking_items', 'is', null);
+    // FIX: Only process bookings synced in THIS run (from allBookingsForOrderLines)
+    // NOT all bookings in database (which causes timeout)
+    const bookingsToProcess = allBookingsForOrderLines
+      .filter(b => Array.isArray(b?.booking_items) && b.booking_items.length > 0)
+      .map(b => ({ id: b.id, booking_items: b.booking_items }));
     
-    if (countError) {
-      console.error('[order_lines] Error counting bookings:', countError);
-      throw countError;
-    }
-    
-    const totalBookingsCount = bookingsWithItems?.length || 0;
-    console.log(`[DEPLOYMENT ${DEPLOYMENT_VERSION}] [order_lines] Found ${totalBookingsCount} bookings with booking_items`);
+    const totalBookingsCount = bookingsToProcess.length;
+    console.log(`[DEPLOYMENT ${DEPLOYMENT_VERSION}] [order_lines] Found ${totalBookingsCount} bookings with items in current run`);
     
     const totalBatches = Math.ceil(totalBookingsCount / batchSize);
     console.log(`[DEPLOYMENT ${DEPLOYMENT_VERSION}] [order_lines] Batch calculation: ${totalBookingsCount} bookings ÷ ${batchSize} per batch = ${totalBatches} total batches`);
     
     if (totalBookingsCount === 0) {
-      console.log('[order_lines] No bookings with items found, skipping extraction');
-      await setState('order_lines', { status: 'completed', rows_fetched: 0 });
+      console.log('[order_lines] No bookings with items in current run, skipping extraction');
+      await setState('order_lines', { status: 'pending', rows_fetched: 0 });
     } else {
       // Update state to running
       await setState('order_lines', {
@@ -484,36 +524,36 @@ Deno.serve(async (req) => {
       
       // Process bookings in batches
       while (currentBatch < totalBatches) {
-      console.log(`[DEPLOYMENT ${DEPLOYMENT_VERSION}] [order_lines] Starting batch extraction: batch ${currentBatch}/${totalBatches}`);
-      
-      // Fetch next batch of bookings WITH items from database (skip legacy bookings)
-      const { data: bookingsBatch, error: fetchError } = await sb
-        .from('bookings')
-        .select('id, booking_items')
-        .not('booking_items', 'is', null)
-        .range(currentBatch * batchSize, (currentBatch + 1) * batchSize - 1)
-        .order('id', { ascending: true });
-      
-      if (fetchError) {
-        console.error(`[order_lines] Error fetching batch ${currentBatch}:`, fetchError);
-        await setState('order_lines', {
-          status: 'error',
-          error_message: fetchError.message,
-        });
-        throw fetchError;
-      }
-      
-      if (!bookingsBatch || bookingsBatch.length === 0) {
-        console.log(`[order_lines] No more bookings to process at batch ${currentBatch}`);
-        break;
-      }
-      
-      // Log how many bookings actually contain items
-      const withItems = bookingsBatch.filter(b => b.booking_items?.length > 0);
-      console.log(`[order_lines] Batch ${currentBatch}: ${withItems.length}/${bookingsBatch.length} bookings have items`);
-      
-      // Extract order lines from this batch
-      const linesExtracted = await upsertOrderLinesFromDbBookings(bookingsBatch);
+        // Check timeout before processing batch
+        if (Date.now() - functionStartTime > MAX_RUNTIME_MS) {
+          console.log('[TIMEOUT] Saving order_lines progress and exiting');
+          await setState('order_lines', {
+            status: 'pending',
+            current_page: currentBatch,
+            rows_fetched: totalOrderLinesExtracted,
+            progress_percentage: Math.min(100, (currentBatch / totalBatches) * 100),
+          });
+          return new Response(JSON.stringify({ ok: true, timeout: true, totalOrderLinesExtracted }), {
+            headers: { ...corsHeaders, "content-type": "application/json" }
+          });
+        }
+        
+        console.log(`[DEPLOYMENT ${DEPLOYMENT_VERSION}] [order_lines] Starting batch extraction: batch ${currentBatch}/${totalBatches}`);
+        
+        // FIX: Use pre-filtered bookings from current run, not database query
+        const batchStart = currentBatch * batchSize;
+        const batchEnd = Math.min((currentBatch + 1) * batchSize, totalBookingsCount);
+        const bookingsBatch = bookingsToProcess.slice(batchStart, batchEnd);
+        
+        if (!bookingsBatch || bookingsBatch.length === 0) {
+          console.log(`[order_lines] No more bookings to process at batch ${currentBatch}`);
+          break;
+        }
+        
+        console.log(`[order_lines] Batch ${currentBatch}: ${bookingsBatch.length} bookings have items`);
+        
+        // Extract order lines from this batch
+        const linesExtracted = await upsertOrderLinesFromDbBookings(bookingsBatch);
       totalOrderLinesExtracted += linesExtracted;
       totalBookingsProcessed += bookingsBatch.length;
       

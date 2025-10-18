@@ -22,7 +22,7 @@ import { WhatsNextCallout } from "@/components/settings/WhatsNextCallout";
 import { SyncTimeline } from "@/components/settings/SyncTimeline";
 import { SyncErrorAlert } from "@/components/settings/SyncErrorAlert";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Info } from "lucide-react";
+import { Info, AlertCircle } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Progress } from "@/components/ui/progress";
 import { formatDistanceToNow } from "date-fns";
@@ -50,7 +50,7 @@ export default function Settings() {
       refetchSyncStatus();
       refetchDbCounts();
     },
-    isAnySyncRunning ? 5000 : null // Poll every 5 seconds when running
+    isAnySyncRunning ? 5000 : 30000 // Poll every 5s when running, 30s when idle
   );
 
   // Track sync events for timeline
@@ -63,12 +63,24 @@ export default function Settings() {
 
   useEffect(() => {
     if (syncStatus) {
-      const newEvents = syncStatus.map((status) => ({
-        timestamp: status.last_run_at ? new Date(status.last_run_at) : new Date(),
-        type: status.status as any,
-        resource: status.resource,
-        message: `${status.resource}: ${status.status} - ${status.rows_fetched || 0} rows`,
-      }));
+      const newEvents = syncStatus.map((status) => {
+        // Better message for order_lines
+        let message = '';
+        if (status.resource === 'order_lines') {
+          const lines = status.rows_fetched || 0;
+          const bookings = status.total_records || 0;
+          message = `${status.resource}: ${status.status} - ${lines.toLocaleString()} lines from ${bookings.toLocaleString()} bookings`;
+        } else {
+          message = `${status.resource}: ${status.status} - ${(status.rows_fetched || 0).toLocaleString()} rows`;
+        }
+        
+        return {
+          timestamp: status.last_run_at ? new Date(status.last_run_at) : new Date(),
+          type: status.status as any,
+          resource: status.resource,
+          message,
+        };
+      });
       setSyncEvents((prev) => {
         const combined = [...newEvents, ...prev];
         const unique = combined.filter((event, index, self) =>
@@ -410,6 +422,18 @@ export default function Settings() {
               return pagesRemaining * 120; // 2 minutes per page in seconds
             };
 
+            // Detect stalled sync (no activity for >5 minutes)
+            const isSyncStalled = (status: any) => {
+              if (status?.status !== "running") return false;
+              if (!status.last_run_at) return false;
+              const minutesSinceLastRun = (Date.now() - new Date(status.last_run_at).getTime()) / 60000;
+              return minutesSinceLastRun > 5;
+            };
+            
+            const isCustomersStalled = isSyncStalled(customersStatus);
+            const isBookingsStalled = isSyncStalled(bookingsStatus);
+            const isOrderLinesStalled = isSyncStalled(orderLinesStatus);
+
             // Determine sync state
             const getSyncState = (): "initial" | "running" | "phase3-running" | "complete" | "computed" | "error" => {
               if (hasError) return "error";
@@ -489,6 +513,36 @@ export default function Settings() {
             </AlertDescription>
           </Alert>
 
+          {/* Stalled Sync Warning */}
+          {(isCustomersStalled || isBookingsStalled || isOrderLinesStalled) && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>⚠️ Sync Appears Stalled</AlertTitle>
+              <AlertDescription>
+                <p>
+                  No database updates in {Math.max(
+                    isCustomersStalled && customersStatus?.last_run_at ? Math.ceil((Date.now() - new Date(customersStatus.last_run_at).getTime()) / 60000) : 0,
+                    isBookingsStalled && bookingsStatus?.last_run_at ? Math.ceil((Date.now() - new Date(bookingsStatus.last_run_at).getTime()) / 60000) : 0,
+                    isOrderLinesStalled && orderLinesStatus?.last_run_at ? Math.ceil((Date.now() - new Date(orderLinesStatus.last_run_at).getTime()) / 60000) : 0
+                  )} minutes. Auto-sync may have stopped due to an error or timeout.
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <Button size="sm" onClick={async () => {
+                    await supabase.functions.invoke('sync-noddi-data');
+                    toast.info("Attempting to resume sync...");
+                  }}>
+                    Resume Sync
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => {
+                    window.open('https://supabase.com/dashboard/project/wylrkmtpjodunmnwncej/functions/sync-noddi-data/logs', '_blank');
+                  }}>
+                    View Logs
+                  </Button>
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
+
           {/* Full Re-Sync Progress Indicator */}
           {bookingsStatus?.sync_mode === "full" && bookingsStatus?.status === "running" && bookingsStatus.estimated_total && (
             <Card className="mb-4 border-blue-500">
@@ -508,9 +562,19 @@ export default function Settings() {
                     <span>
                       Page {bookingsStatus.current_page || 0} of ~{Math.ceil(bookingsStatus.estimated_total / 100)}
                     </span>
-                    <span className="font-semibold text-blue-600 dark:text-blue-400">
-                      {Math.round(((bookingsStatus.current_page || 0) / Math.ceil(bookingsStatus.estimated_total / 100)) * 100)}%
-                    </span>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="font-semibold text-blue-600 dark:text-blue-400">
+                        {Math.round(((bookingsStatus.current_page || 0) / Math.ceil(bookingsStatus.estimated_total / 100)) * 100)}%
+                      </span>
+                      {bookingsStatus.last_run_at && (
+                        <span className={cn(
+                          "text-[10px]",
+                          isBookingsStalled && "text-red-600 dark:text-red-400 font-semibold"
+                        )}>
+                          Last: {formatDistanceToNow(new Date(bookingsStatus.last_run_at), { addSuffix: true })}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   {estimateBookingsTime() && (
                     <p className="text-xs text-muted-foreground">
@@ -533,7 +597,7 @@ export default function Settings() {
                         from Noddi API to populate order line data.
                       </p>
                       <p>
-                        <strong>Estimated time:</strong> ~{estimateBookingsTime()} minutes remaining
+                        <strong>Estimated time:</strong> ~{Math.ceil((estimateBookingsTime() || 0) / 60)} minutes remaining
                       </p>
                       <p className="text-xs">
                         ✅ You can safely leave this page. Auto-sync continues in the background.

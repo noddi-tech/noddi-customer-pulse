@@ -48,6 +48,11 @@ export function SyncStatusCard({
     if (isComputingSegments) return "computing";
     if (hasError) return "error";
     
+    // Special case: order_lines "success" with 0 rows (bug indicator)
+    if (orderLinesStatus?.status === "success" && orderLinesStatus.rows_fetched === 0) {
+      return "error"; // Treat as error state
+    }
+    
     // Special case: order_lines complete but bookings full sync still running
     if (orderLinesStatus?.status === "success" && 
         bookingsStatus?.sync_mode === "full" && 
