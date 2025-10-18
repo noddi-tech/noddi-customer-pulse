@@ -512,17 +512,6 @@ export default function Settings() {
                       }
                     />
 
-                    <div className="flex gap-2 pt-4 border-t">
-                      <Button 
-                        variant="outline" 
-                        onClick={handleReExtractOrderLines} 
-                        disabled={isRunning}
-                        className="flex-1"
-                      >
-                        Re-extract Order Lines
-                      </Button>
-                    </div>
-
                     <SyncActionButtons
                       syncState={syncState}
                       onSyncNow={() => syncMutation.mutate()}

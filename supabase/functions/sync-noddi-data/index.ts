@@ -153,7 +153,7 @@ async function upsertCustomers(rows: any[]) {
   }
 }
 
-// PHASE 2: Rewrite with correct user_id mapping
+// PHASE 2: Rewrite with correct user_id mapping and store booking_items
 async function upsertBookings(rows: any[]) {
   if (!rows.length) return;
   
@@ -200,6 +200,7 @@ async function upsertBookings(rows: any[]) {
         is_partially_unable_to_complete: Boolean(b?.is_partially_unable_to_complete),
         is_fully_unable_to_complete: Boolean(b?.is_fully_unable_to_complete),
         updated_at: b?.updated_at ?? null,
+        booking_items: b?.booking_items || [], // Store booking_items JSONB
       };
     })
     .filter(b => {
@@ -222,121 +223,85 @@ async function upsertBookings(rows: any[]) {
   }
   
   const skippedCount = rows.length - mapped.length;
-  console.log(`[bookings] ✓ Upserted ${mapped.length} bookings${skippedCount > 0 ? ` (skipped ${skippedCount} orphaned)` : ''}`);
+  console.log(`[bookings] ✓ Upserted ${mapped.length} bookings with booking_items${skippedCount > 0 ? ` (skipped ${skippedCount} orphaned)` : ''}`);
 }
 
-// NEW: Extract order lines from DB bookings by fetching detailed booking data from API
+// NEW: Extract order lines from booking_items JSONB stored in database (no API calls)
 async function upsertOrderLinesFromDbBookings(bookingsBatch: any[]): Promise<number> {
-  const lines: any[] = [];
-  let fetchedCount = 0;
-  let failedCount = 0;
+  console.log(`[order_lines] Processing batch of ${bookingsBatch.length} bookings from database...`);
+  
+  // Fetch bookings WITH booking_items from database (no API calls!)
+  const { data: bookingsWithItems, error: fetchError } = await sb
+    .from('bookings')
+    .select('id, booking_items')
+    .in('id', bookingsBatch.map(b => b.id));
 
-  for (const booking of bookingsBatch) {
-    try {
-      // Try different API endpoints to find one that works
-      let b: any = null;
-      let endpoint = '';
-      
-      // Attempt 1: Try with trailing slash
-      const url1 = `${API}/v1/bookings/${booking.id}/`;
-      const res1 = await fetch(url1, {
-        headers: { Accept: "application/json", Authorization: `Api-Key ${KEY}` },
-      });
-      
-      if (res1.ok) {
-        b = await res1.json();
-        endpoint = url1;
-      } else {
-        // Attempt 2: Try without trailing slash
-        const url2 = `${API}/v1/bookings/${booking.id}`;
-        const res2 = await fetch(url2, {
-          headers: { Accept: "application/json", Authorization: `Api-Key ${KEY}` },
-        });
-        
-        if (res2.ok) {
-          b = await res2.json();
-          endpoint = url2;
-        } else {
-          // Log both failures once for first booking
-          if (fetchedCount === 0 && failedCount === 0) {
-            console.warn(`[order_lines] Both endpoints failed for booking ${booking.id}: ${url1} -> ${res1.status}, ${url2} -> ${res2.status}`);
-            console.warn(`[order_lines] This suggests the Noddi API may not support individual booking details`);
-          }
-          failedCount++;
-          continue;
-        }
-      }
-
-      fetchedCount++;
-      
-      // Log success on first fetch
-      if (fetchedCount === 1) {
-        console.log(`[order_lines] ✓ Successfully fetching from: ${endpoint}`);
-        console.log(`[order_lines] Sample response keys:`, Object.keys(b).join(', '));
-        console.log(`[order_lines] Has booking_items:`, !!b?.booking_items);
-      }
-      
-      const bookingId = toNum(b?.id);
-      if (!bookingId) continue;
-      
-      const items = Array.isArray(b?.booking_items) ? b.booking_items : [];
-
-      for (const bi of items) {
-        const sales = Array.isArray(bi?.sales_items) ? bi.sales_items : [];
-        for (const si of sales) {
-          const id = toNum(si?.id);
-          if (!id) continue;
-
-          lines.push({
-            id,
-            booking_id: bookingId,
-            sales_item_id: id,
-            description: si?.name ?? si?.name_internal ?? bi?.title ?? null,
-            quantity: Number(si?.quantity ?? 1),
-            amount_gross: Number(si?.price?.amount ?? si?.amount_gross?.amount ?? 0),
-            amount_vat: Number(si?.amount_vat?.amount ?? 0),
-            currency: si?.price?.currency ?? si?.currency ?? 'NOK',
-            is_discount: Boolean(si?.is_discount ?? false),
-            is_delivery_fee: Boolean(si?.is_delivery_fee ?? false),
-            created_at: si?.created_at ?? b?.created_at ?? null,
-          });
-        }
-      }
-
-      // Rate limiting: 10ms delay between API calls
-      await new Promise(resolve => setTimeout(resolve, 10));
-    } catch (error) {
-      console.warn(`[order_lines] Error processing booking ${booking.id}:`, error);
-      failedCount++;
-    }
-  }
-
-  if (lines.length === 0) {
-    console.log(`[order_lines] ⚠️ No lines extracted from ${bookingsBatch.length} bookings (${fetchedCount} fetched, ${failedCount} failed)`);
+  if (fetchError) {
+    console.error('[order_lines] Error fetching bookings:', fetchError);
     return 0;
   }
 
-  // Upsert in chunks to avoid payload size limits
-  const chunkSize = 500;
-  let totalUpserted = 0;
+  // Extract all order lines from booking_items JSONB
+  const allLines: any[] = [];
+  let successCount = 0;
+  let emptyCount = 0;
 
-  for (let i = 0; i < lines.length; i += chunkSize) {
-    const chunk = lines.slice(i, i + chunkSize);
+  for (const booking of bookingsWithItems || []) {
+    const bookingItems = booking.booking_items;
     
-    const { error } = await sb
-      .from("order_lines")
-      .upsert(chunk, { onConflict: "id", ignoreDuplicates: true });
+    // Handle case where booking_items might be missing or empty
+    if (!Array.isArray(bookingItems) || bookingItems.length === 0) {
+      emptyCount++;
+      continue;
+    }
 
-    if (error) {
-      console.error(`[order_lines] Upsert error for chunk ${i / chunkSize}:`, error);
-      // Continue with next chunk instead of throwing
-    } else {
-      totalUpserted += chunk.length;
+    // Parse each booking item's sales_items
+    for (const bookingItem of bookingItems) {
+      const salesItems = bookingItem.sales_items;
+      
+      if (!Array.isArray(salesItems)) continue;
+
+      for (const salesItem of salesItems) {
+        const id = toNum(salesItem?.id);
+        if (!id) continue;
+
+        // Map to order_lines structure
+        allLines.push({
+          id,
+          booking_id: booking.id,
+          sales_item_id: salesItem.sales_item?.id || id,
+          description: salesItem.sales_item?.name || salesItem.description || null,
+          quantity: Number(salesItem.quantity || 1),
+          amount_gross: Number(salesItem.sales_item?.price_gross?.amount || 0),
+          amount_vat: Number(salesItem.sales_item?.price_vat?.amount || 0),
+          currency: salesItem.sales_item?.price_gross?.currency || 'NOK',
+          is_discount: Boolean(salesItem.sales_item?.is_discount || false),
+          is_delivery_fee: Boolean(salesItem.sales_item?.is_delivery_window_fee || false),
+          created_at: salesItem.created_at || bookingItem.created_at || new Date().toISOString()
+        });
+      }
+    }
+    
+    successCount++;
+  }
+
+  // Upsert order lines in chunks of 500
+  if (allLines.length > 0) {
+    for (let i = 0; i < allLines.length; i += 500) {
+      const chunk = allLines.slice(i, i + 500);
+      const { error: upsertError } = await sb
+        .from("order_lines")
+        .upsert(chunk, { onConflict: "id" });
+
+      if (upsertError) {
+        console.error(`[order_lines] Error upserting chunk ${i}-${i + chunk.length}:`, upsertError);
+      }
     }
   }
 
-  console.log(`[order_lines] Extracted ${totalUpserted} lines from ${fetchedCount} bookings (${failedCount} failed)`);
-  return totalUpserted;
+  console.log(`[order_lines] ✓ Extracted ${allLines.length} lines from ${successCount} bookings (${emptyCount} had no items)`);
+  
+  return allLines.length;
 }
 
 
