@@ -16,7 +16,9 @@ import { useInterval } from "@/hooks/useInterval";
 import { SyncStatusCard } from "@/components/settings/SyncStatusCard";
 import { SyncProgressBar } from "@/components/settings/SyncProgressBar";
 import { SyncMetricsCards } from "@/components/settings/SyncMetricsCards";
-import { SyncHelpPanel } from "@/components/settings/SyncHelpPanel";
+import { SyncWorkflowGuide } from "@/components/settings/SyncWorkflowGuide";
+import { SyncActionButtons } from "@/components/settings/SyncActionButtons";
+import { WhatsNextCallout } from "@/components/settings/WhatsNextCallout";
 import { SyncTimeline } from "@/components/settings/SyncTimeline";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Progress } from "@/components/ui/progress";
@@ -34,6 +36,7 @@ export default function Settings() {
   // Track compute-specific state
   const [isComputingSegments, setIsComputingSegments] = useState(false);
   const [lastComputeTime, setLastComputeTime] = useState<Date | null>(null);
+  const [activePhaseRef, setActivePhaseRef] = useState<HTMLDivElement | null>(null);
 
   // Auto-refresh when sync is running
   const isAnySyncRunning = syncStatus?.some((s) => s.status === "running") ?? false;
@@ -323,9 +326,15 @@ export default function Settings() {
               ? Math.min(100, (dbCounts.bookings / bookingsStatus.estimated_total) * 100)
               : 0;
 
+            // PHASE 1: Add order lines progress tracking
+            const expectedOrderLines = (dbCounts?.bookings || 0) * 2.5;
+            const orderLinesProgress = expectedOrderLines > 0
+              ? Math.min(100, ((dbCounts?.order_lines || 0) / expectedOrderLines) * 100)
+              : 0;
+
             const isRunning = syncStatus?.some((s) => s.status === "running") ?? false;
             const hasError = syncStatus?.some((s) => s.status === "error") ?? false;
-            const isSyncComplete = customersProgress >= 100 && bookingsProgress >= 100;
+            const isSyncComplete = customersProgress >= 100 && bookingsProgress >= 100 && orderLinesProgress >= 90;
             
             // Determine current step for help panel
             const getCurrentStep = (): 1 | 2 | 3 | 4 => {
@@ -334,12 +343,56 @@ export default function Settings() {
               return 3; // Ready to recompute
             };
 
-            // Estimate time remaining (rough calculation based on bookings)
-            const estimateTimeRemaining = () => {
-              if (!bookingsStatus?.estimated_total || !dbCounts?.bookings) return 0;
-              const remaining = bookingsStatus.estimated_total - dbCounts.bookings;
-              const rate = 300; // rows per minute (rough estimate with 300 page limit)
+            // Estimate time remaining for order lines
+            const estimateOrderLinesTime = () => {
+              if (expectedOrderLines === 0) return 0;
+              const remaining = expectedOrderLines - (dbCounts?.order_lines || 0);
+              const rate = 750; // order lines per minute
               return (remaining / rate) * 60; // in seconds
+            };
+
+            // Determine sync state
+            const getSyncState = (): "initial" | "running" | "phase3-running" | "complete" | "computed" | "error" => {
+              if (hasError) return "error";
+              if (customersProgress === 0 && bookingsProgress === 0) return "initial";
+              if (isRunning && (customersProgress < 100 || bookingsProgress < 100)) return "running";
+              if (isRunning && customersProgress >= 100 && bookingsProgress >= 100) return "phase3-running";
+              if (isSyncComplete && lastComputeTime) return "computed";
+              if (isSyncComplete) return "complete";
+              return "running";
+            };
+
+            const syncState = getSyncState();
+
+            // PHASE 7: Auto-scroll to active phase
+            useEffect(() => {
+              if (activePhaseRef && isRunning) {
+                activePhaseRef.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }
+            }, [customersProgress, bookingsProgress, orderLinesProgress, isRunning]);
+
+            // Determine What's Next callout type
+            const getWhatsNextType = (): "syncing" | "compute" | "complete" | "initial" => {
+              if (syncState === "initial") return "initial";
+              if (syncState === "running" || syncState === "phase3-running") return "syncing";
+              if (syncState === "complete") return "compute";
+              if (syncState === "computed") return "complete";
+              return "initial";
+            };
+
+            const handleComputeSegments = async () => {
+              setIsComputingSegments(true);
+              const startTime = Date.now();
+              try {
+                const result = await computeMutation.mutateAsync();
+                const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+                setLastComputeTime(new Date());
+                toast.success(`Processed ${result.users || 0} customers in ${duration}s`);
+              } catch (error: any) {
+                toast.error(`Computation failed: ${error.message}`);
+              } finally {
+                setIsComputingSegments(false);
+              }
             };
 
             return (
@@ -347,21 +400,28 @@ export default function Settings() {
                 <SyncStatusCard
                   customersProgress={customersProgress}
                   bookingsProgress={bookingsProgress}
+                  orderLinesProgress={orderLinesProgress}
                   customersTotal={customersStatus?.estimated_total}
                   bookingsTotal={bookingsStatus?.estimated_total}
                   customersInDb={dbCounts?.customers || 0}
                   bookingsInDb={dbCounts?.bookings || 0}
+                  orderLinesInDb={dbCounts?.order_lines || 0}
+                  expectedOrderLines={Math.round(expectedOrderLines)}
                   isRunning={isRunning}
                   hasError={hasError}
                   isComputingSegments={isComputingSegments}
                   lastComputeTime={lastComputeTime}
                 />
 
+                <WhatsNextCallout type={getWhatsNextType()} />
+
                 <div className="grid md:grid-cols-2 gap-4">
-                  <SyncHelpPanel 
-                    currentStep={getCurrentStep()} 
-                    syncComplete={isSyncComplete}
-                    computeComplete={!!lastComputeTime}
+                  <SyncWorkflowGuide
+                    customersComplete={customersProgress >= 100}
+                    bookingsComplete={bookingsProgress >= 100}
+                    orderLinesComplete={orderLinesProgress >= 90}
+                    segmentsComputed={!!lastComputeTime}
+                    isRunning={isRunning}
                   />
                   <SyncTimeline events={syncEvents} />
                 </div>
@@ -375,22 +435,36 @@ export default function Settings() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="space-y-4">
-                      <SyncProgressBar
-                        resource="customers"
-                        progress={customersProgress}
-                        total={customersStatus?.estimated_total}
-                        inDb={dbCounts?.customers || 0}
-                        status={customersStatus?.status || "pending"}
-                      />
+                      <div ref={customersProgress < 100 && isRunning ? setActivePhaseRef : null}>
+                        <SyncProgressBar
+                          resource="customers"
+                          progress={customersProgress}
+                          total={customersStatus?.estimated_total}
+                          inDb={dbCounts?.customers || 0}
+                          status={customersStatus?.status || "pending"}
+                        />
+                      </div>
                       
-                      <SyncProgressBar
-                        resource="bookings"
-                        progress={bookingsProgress}
-                        total={bookingsStatus?.estimated_total}
-                        inDb={dbCounts?.bookings || 0}
-                        status={bookingsStatus?.status || "pending"}
-                        estimatedTime={estimateTimeRemaining()}
-                      />
+                      <div ref={bookingsProgress < 100 && customersProgress >= 100 && isRunning ? setActivePhaseRef : null}>
+                        <SyncProgressBar
+                          resource="bookings"
+                          progress={bookingsProgress}
+                          total={bookingsStatus?.estimated_total}
+                          inDb={dbCounts?.bookings || 0}
+                          status={bookingsStatus?.status || "pending"}
+                        />
+                      </div>
+
+                      <div ref={orderLinesProgress < 90 && bookingsProgress >= 100 && isRunning ? setActivePhaseRef : null}>
+                        <SyncProgressBar
+                          resource="order lines"
+                          progress={orderLinesProgress}
+                          total={Math.round(expectedOrderLines)}
+                          inDb={dbCounts?.order_lines || 0}
+                          status={orderLinesProgress >= 90 ? "complete" : isRunning ? "running" : "pending"}
+                          estimatedTime={estimateOrderLinesTime()}
+                        />
+                      </div>
                     </div>
 
                     <SyncMetricsCards
@@ -398,6 +472,7 @@ export default function Settings() {
                       bookingsTotal={dbCounts?.bookings || 0}
                       bookingsWithUser={dbCounts?.bookings_with_user || 0}
                       orderLines={dbCounts?.order_lines || 0}
+                      expectedOrderLines={Math.round(expectedOrderLines)}
                       lastSyncAt={
                         customersStatus?.last_run_at
                           ? new Date(customersStatus.last_run_at)
@@ -405,146 +480,17 @@ export default function Settings() {
                       }
                     />
 
-                    <div className="border-t pt-4 space-y-3">
-                      <h3 className="text-sm font-medium flex items-center gap-2">
-                        <Lightbulb className="h-4 w-4 text-amber-500" />
-                        Actions
-                      </h3>
-
-                      <div className="flex gap-2 flex-wrap">
-                        <TooltipProvider>
-                          {!isSyncComplete && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  onClick={() => syncMutation.mutate()}
-                                  disabled={syncMutation.isPending || isRunning}
-                                  size="sm"
-                                >
-                                  <RefreshCw
-                                    className={`mr-2 h-4 w-4 ${
-                                      syncMutation.isPending ? "animate-spin" : ""
-                                    }`}
-                                  />
-                                  {isRunning ? "Sync Running..." : "Manual Sync Now"}
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p className="max-w-xs">
-                                  Trigger an immediate sync. Auto-sync runs every 2 minutes.
-                                </p>
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
-
-                          {isSyncComplete && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  onClick={async () => {
-                                    setIsComputingSegments(true);
-                                    const startTime = Date.now();
-                                    try {
-                                      const result = await computeMutation.mutateAsync();
-                                      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-                                      setLastComputeTime(new Date());
-                                      toast.success(`Processed ${result.users || 0} customers in ${duration}s`);
-                                    } catch (error: any) {
-                                      toast.error(`Computation failed: ${error.message}`);
-                                    } finally {
-                                      setIsComputingSegments(false);
-                                    }
-                                  }}
-                                  disabled={isComputingSegments}
-                                  size="sm"
-                                  className="bg-green-600 hover:bg-green-700"
-                                >
-                                  <TrendingUp className={`mr-2 h-4 w-4 ${isComputingSegments ? 'animate-spin' : ''}`} />
-                                  {isComputingSegments
-                                    ? "Computing..."
-                                    : "Recompute Segments"}
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p className="max-w-xs">
-                                  Recalculate customer segments after data sync completes
-                                </p>
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
-
-                          {!isSyncComplete && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="outline"
-                                  onClick={async () => {
-                                    setIsComputingSegments(true);
-                                    const startTime = Date.now();
-                                    try {
-                                      const result = await computeMutation.mutateAsync();
-                                      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-                                      setLastComputeTime(new Date());
-                                      toast.success(`Processed ${result.users || 0} customers in ${duration}s`);
-                                    } catch (error: any) {
-                                      toast.error(`Computation failed: ${error.message}`);
-                                    } finally {
-                                      setIsComputingSegments(false);
-                                    }
-                                  }}
-                                  disabled={isComputingSegments}
-                                  size="sm"
-                                >
-                                  <TrendingUp className={`mr-2 h-4 w-4 ${isComputingSegments ? 'animate-spin' : ''}`} />
-                                  Recompute Segments
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p className="max-w-xs">
-                                  Recalculate customer segments after data sync completes
-                                </p>
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
-
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={handleResetSync}
-                              >
-                                Force Full Re-Sync
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p className="max-w-xs">
-                                ⚠️ Reset and re-fetch all data from Noddi API. This will take
-                                several minutes.
-                              </p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </div>
-
-                      {isSyncComplete && (
-                        <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-950/30 rounded-lg border border-green-200 dark:border-green-900">
-                          <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400" />
-                          <span className="text-sm text-green-800 dark:text-green-200">
-                            ✅ All up to date! Click "Recompute Segments" then view results in
-                          </span>
-                          <Button
-                            variant="link"
-                            size="sm"
-                            className="h-auto p-0 text-green-700 dark:text-green-300"
-                            onClick={() => (window.location.href = "/")}
-                          >
-                            Dashboard
-                            <ArrowRight className="ml-1 h-3 w-3" />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
+                    <SyncActionButtons
+                      syncState={syncState}
+                      onSyncNow={() => syncMutation.mutate()}
+                      onComputeSegments={handleComputeSegments}
+                      onViewDashboard={() => window.location.href = "/"}
+                      onResetSync={handleResetSync}
+                      isSyncing={syncMutation.isPending || isRunning}
+                      isComputing={isComputingSegments}
+                      phase3Progress={orderLinesProgress}
+                      estimatedTime={estimateOrderLinesTime()}
+                    />
                   </CardContent>
                 </Card>
               </>

@@ -7,6 +7,7 @@ interface SyncMetricsCardsProps {
   bookingsTotal: number;
   bookingsWithUser: number;
   orderLines: number;
+  expectedOrderLines: number;
   lastSyncAt?: Date;
 }
 
@@ -15,8 +16,10 @@ export function SyncMetricsCards({
   bookingsTotal,
   bookingsWithUser,
   orderLines,
+  expectedOrderLines,
   lastSyncAt,
 }: SyncMetricsCardsProps) {
+  const orderLinesComplete = orderLines >= expectedOrderLines * 0.9;
   const metrics = [
     {
       label: "Total Customers",
@@ -40,7 +43,12 @@ export function SyncMetricsCards({
       label: "Order Lines",
       value: orderLines.toLocaleString(),
       icon: Database,
-      color: "text-orange-600 dark:text-orange-400",
+      color: orderLinesComplete 
+        ? "text-green-600 dark:text-green-400" 
+        : "text-orange-600 dark:text-orange-400",
+      subtitle: orderLinesComplete 
+        ? "✅ Complete" 
+        : `Expected: ${expectedOrderLines.toLocaleString()}`,
     },
   ];
 
@@ -65,6 +73,9 @@ export function SyncMetricsCards({
                 <p className="text-xs text-muted-foreground">{metric.label}</p>
               </div>
               <p className="text-lg font-bold">{metric.value}</p>
+              {(metric as any).subtitle && (
+                <p className="text-xs text-muted-foreground mt-1">{(metric as any).subtitle}</p>
+              )}
             </Card>
           );
         })}

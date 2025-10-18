@@ -7,10 +7,13 @@ type SyncState = "idle" | "syncing" | "complete" | "error" | "ready-to-compute" 
 interface SyncStatusCardProps {
   customersProgress: number;
   bookingsProgress: number;
+  orderLinesProgress: number;
   customersTotal?: number;
   bookingsTotal?: number;
   customersInDb: number;
   bookingsInDb: number;
+  orderLinesInDb: number;
+  expectedOrderLines: number;
   isRunning: boolean;
   hasError?: boolean;
   errorMessage?: string;
@@ -21,10 +24,13 @@ interface SyncStatusCardProps {
 export function SyncStatusCard({
   customersProgress,
   bookingsProgress,
+  orderLinesProgress,
   customersTotal,
   bookingsTotal,
   customersInDb,
   bookingsInDb,
+  orderLinesInDb,
+  expectedOrderLines,
   isRunning,
   hasError,
   errorMessage,
@@ -54,12 +60,19 @@ export function SyncStatusCard({
           message: "Analyzing customer data and calculating segments...",
         };
       case "syncing":
+        // Detect current phase based on progress
+        const currentPhase = customersProgress < 100
+          ? `Phase 1/3: Syncing customers... (${Math.round(customersProgress)}%)`
+          : bookingsProgress < 100
+          ? `Phase 2/3: Syncing bookings... (${Math.round(bookingsProgress)}%)`
+          : `Phase 3/3: Processing order lines... (${Math.round(orderLinesProgress)}%)`;
+        
         return {
           icon: RefreshCw,
           iconClass: "text-blue-500 animate-spin",
           bgClass: "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900",
-          title: "Sync in Progress",
-          message: `Syncing data... ${bookingsInDb.toLocaleString()} bookings synced (${Math.round(bookingsProgress)}%)`,
+          title: currentPhase,
+          message: `${orderLinesInDb.toLocaleString()} / ${expectedOrderLines.toLocaleString()} order lines processed`,
         };
       case "ready-to-compute":
         const needsCompute = !lastComputeTime || (customersProgress >= 100 && bookingsProgress >= 100);
