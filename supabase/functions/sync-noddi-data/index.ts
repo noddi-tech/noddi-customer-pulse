@@ -450,6 +450,8 @@ Deno.serve(async (req) => {
     
     // Process bookings in batches
     while (currentBatch < totalBatches) {
+      console.log(`[order_lines] ⚡ DEPLOYMENT v3 - Starting batch extraction: batch ${currentBatch}/${totalBatches}`);
+      
       // Fetch next batch of bookings WITH items from database (skip legacy bookings)
       const { data: bookingsBatch, error: fetchError } = await sb
         .from('bookings')
