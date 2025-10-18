@@ -1,6 +1,8 @@
 // deno-lint-ignore-file no-explicit-any
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const DEPLOYMENT_VERSION = 'v5-force-fresh-2025-10-18';
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -238,6 +240,7 @@ async function upsertOrderLinesFromDbBookings(bookingsBatch: any[]): Promise<num
   const allLines: any[] = [];
   let successCount = 0;
   let emptyCount = 0;
+  let skippedZeroAmount = 0;
 
   for (const booking of bookingsWithItems || []) {
     const bookingItems = booking.booking_items;
@@ -246,6 +249,11 @@ async function upsertOrderLinesFromDbBookings(bookingsBatch: any[]): Promise<num
     if (!Array.isArray(bookingItems) || bookingItems.length === 0) {
       emptyCount++;
       continue;
+    }
+
+    // Log first booking's structure for debugging
+    if (booking.id === bookingsBatch[0]?.id && bookingItems.length > 0) {
+      console.log('[order_lines] SAMPLE booking_items structure:', JSON.stringify(bookingItems[0], null, 2));
     }
 
     // Parse each booking item's sales_items
@@ -258,6 +266,20 @@ async function upsertOrderLinesFromDbBookings(bookingsBatch: any[]): Promise<num
         const salesItemId = toNum(salesItem?.id);
         if (!salesItemId) continue;
 
+        // Validate amount before creating order line
+        const amount = Number(salesItem.price?.amount || 0);
+        
+        // Log mapping for debugging (first 3 items only)
+        if (allLines.length < 3) {
+          console.log(`[order_lines] Mapping salesItem ${salesItemId}: name="${salesItem.name}", amount=${amount}, category=${salesItem.category}`);
+        }
+        
+        if (amount === 0) {
+          console.log(`[order_lines] ⚠️ Skipping salesItem ${salesItemId}: zero amount`);
+          skippedZeroAmount++;
+          continue;
+        }
+
         // Map to order_lines structure with unique UUID (using direct field access)
         allLines.push({
           id: crypto.randomUUID(), // Generate unique UUID for each instance
@@ -265,7 +287,7 @@ async function upsertOrderLinesFromDbBookings(bookingsBatch: any[]): Promise<num
           sales_item_id: salesItemId,
           description: salesItem.name || salesItem.name_internal || null,
           quantity: Number(salesItem.quantity || 1),
-          amount_gross: Number(salesItem.price?.amount || 0),
+          amount_gross: amount,
           amount_vat: 0, // Not provided in Noddi API, would need to calculate from VAT rate
           currency: salesItem.price?.currency || 'NOK',
           is_discount: salesItem.category === 'DISCOUNT',
@@ -292,7 +314,7 @@ async function upsertOrderLinesFromDbBookings(bookingsBatch: any[]): Promise<num
     }
   }
 
-  console.log(`[order_lines] ✓ Extracted ${allLines.length} lines from ${successCount} bookings (${emptyCount} had no items)`);
+  console.log(`[order_lines] ✓ Extracted ${allLines.length} lines from ${successCount} bookings (${emptyCount} had no items, ${skippedZeroAmount} skipped zero amount)`);
   
   return allLines.length;
 }
@@ -327,7 +349,7 @@ Deno.serve(async (req) => {
     await setState("bookings", { status: "running", error_message: null });
 
     // ===== PHASE 1: SYNC CUSTOMERS COMPLETELY =====
-    console.log("\n[PHASE 1] === Syncing Customers ===");
+    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 1] === Syncing Customers ===`);
     let usersFetched = 0;
     let customerPages = 0;
     let customersMaxIdSeen = customersState.max_id_seen || 0;
@@ -374,7 +396,7 @@ Deno.serve(async (req) => {
     console.log(`[PHASE 1] ✓ Customers complete: ${usersFetched} synced`);
 
     // ===== PHASE 2: SYNC BOOKINGS COMPLETELY (WITHOUT order_lines) =====
-    console.log("\n[PHASE 2] === Syncing Bookings ===");
+    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 2] === Syncing Bookings ===`);
     let bookingsFetched = 0;
     let bookingPages = 0;
     let bookingsMaxIdSeen = bookingsState.max_id_seen || 0;
@@ -423,11 +445,11 @@ Deno.serve(async (req) => {
     console.log(`[PHASE 2] ✓ Bookings complete: ${bookingsFetched} synced`);
 
     // ===== PHASE 3: SYNC ORDER LINES (Process ALL bookings from DB) =====
-    console.log("\n[PHASE 3] === Syncing Order Lines ===");
+    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 3] === Syncing Order Lines ===`);
     
     const orderLinesState = await getState('order_lines');
     const startBatch = orderLinesState.current_page || 0;
-    const batchSize = 100; // Process 100 bookings at a time
+    const batchSize = 50; // Process 50 bookings at a time (changed from 100 for cache busting)
     let totalOrderLinesExtracted = 0; // Track actual order lines extracted
     let totalBookingsProcessed = 0;
     let currentBatch = startBatch;
@@ -450,7 +472,7 @@ Deno.serve(async (req) => {
     
     // Process bookings in batches
     while (currentBatch < totalBatches) {
-      console.log(`[order_lines] ⚡ DEPLOYMENT v3 - Starting batch extraction: batch ${currentBatch}/${totalBatches}`);
+      console.log(`[DEPLOYMENT ${DEPLOYMENT_VERSION}] [order_lines] Starting batch extraction: batch ${currentBatch}/${totalBatches}`);
       
       // Fetch next batch of bookings WITH items from database (skip legacy bookings)
       const { data: bookingsBatch, error: fetchError } = await sb
@@ -507,7 +529,7 @@ Deno.serve(async (req) => {
     console.log(`[PHASE 3] ✓ Order lines complete: ${totalOrderLinesExtracted} lines extracted from ${totalBookingsProcessed} bookings in ${currentBatch} batches`);
     
     // ===== PHASE 4: HEALTH CHECK =====
-    console.log("\n[PHASE 4] === Health Check ===");
+    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 4] === Health Check ===`);
     const [customersCount, bookingsCount, orderLinesCount, bookingsWithUser] = await Promise.all([
       sb.from("customers").select("id", { count: "exact", head: true }),
       sb.from("bookings").select("id", { count: "exact", head: true }),

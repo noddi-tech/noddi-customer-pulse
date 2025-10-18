@@ -8,6 +8,7 @@ interface SyncActionButtonsProps {
   onComputeSegments: () => void;
   onViewDashboard: () => void;
   onResetSync: () => void;
+  onReExtractOrderLines: () => void;
   isSyncing: boolean;
   isComputing: boolean;
   phase3Progress?: number;
@@ -20,6 +21,7 @@ export function SyncActionButtons({
   onComputeSegments,
   onViewDashboard,
   onResetSync,
+  onReExtractOrderLines,
   isSyncing,
   isComputing,
   phase3Progress = 0,
@@ -54,6 +56,37 @@ export function SyncActionButtons({
             <p className="text-sm text-muted-foreground">
               Auto-sync in progress. Refreshes every 5 seconds.
             </p>
+            <details className="mt-4 pt-4 border-t">
+              <summary className="cursor-pointer text-sm font-medium mb-2 hover:text-primary">
+                Advanced Actions
+              </summary>
+              <div className="space-y-2 mt-3">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => {
+                    if (confirm('Re-extract all order lines from existing bookings? This will clear existing order lines.')) {
+                      onReExtractOrderLines();
+                    }
+                  }}
+                  className="w-full"
+                >
+                  Re-extract Order Lines
+                </Button>
+                <Button 
+                  variant="destructive" 
+                  size="sm" 
+                  onClick={() => {
+                    if (confirm('Force a complete re-sync of all data from the beginning?')) {
+                      onResetSync();
+                    }
+                  }}
+                  className="w-full"
+                >
+                  Reset Full Sync
+                </Button>
+              </div>
+            </details>
           </div>
         );
 
@@ -72,6 +105,37 @@ export function SyncActionButtons({
             <p className="text-sm text-muted-foreground">
               {Math.round(phase3Progress)}% complete. {timeStr}
             </p>
+            <details className="mt-4 pt-4 border-t">
+              <summary className="cursor-pointer text-sm font-medium mb-2 hover:text-primary">
+                Advanced Actions
+              </summary>
+              <div className="space-y-2 mt-3">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => {
+                    if (confirm('Re-extract all order lines from existing bookings? This will clear existing order lines.')) {
+                      onReExtractOrderLines();
+                    }
+                  }}
+                  className="w-full"
+                >
+                  Re-extract Order Lines
+                </Button>
+                <Button 
+                  variant="destructive" 
+                  size="sm" 
+                  onClick={() => {
+                    if (confirm('Force a complete re-sync of all data from the beginning?')) {
+                      onResetSync();
+                    }
+                  }}
+                  className="w-full"
+                >
+                  Reset Full Sync
+                </Button>
+              </div>
+            </details>
           </div>
         );
 
@@ -97,6 +161,37 @@ export function SyncActionButtons({
                 ✅ Data synced! Click "Recompute Segments" to calculate insights.
               </p>
             </div>
+            <details className="mt-4 pt-4 border-t">
+              <summary className="cursor-pointer text-sm font-medium mb-2 hover:text-primary">
+                Advanced Actions
+              </summary>
+              <div className="space-y-2 mt-3">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => {
+                    if (confirm('Re-extract all order lines from existing bookings? This will clear existing order lines.')) {
+                      onReExtractOrderLines();
+                    }
+                  }}
+                  className="w-full"
+                >
+                  Re-extract Order Lines
+                </Button>
+                <Button 
+                  variant="destructive" 
+                  size="sm" 
+                  onClick={() => {
+                    if (confirm('Force a complete re-sync of all data from the beginning?')) {
+                      onResetSync();
+                    }
+                  }}
+                  className="w-full"
+                >
+                  Reset Full Sync
+                </Button>
+              </div>
+            </details>
           </div>
         );
 
@@ -118,6 +213,37 @@ export function SyncActionButtons({
                 🎉 You're all set! View your customer insights on the Dashboard.
               </p>
             </div>
+            <details className="mt-4 pt-4 border-t">
+              <summary className="cursor-pointer text-sm font-medium mb-2 hover:text-primary">
+                Advanced Actions
+              </summary>
+              <div className="space-y-2 mt-3">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => {
+                    if (confirm('Re-extract all order lines from existing bookings? This will clear existing order lines.')) {
+                      onReExtractOrderLines();
+                    }
+                  }}
+                  className="w-full"
+                >
+                  Re-extract Order Lines
+                </Button>
+                <Button 
+                  variant="destructive" 
+                  size="sm" 
+                  onClick={() => {
+                    if (confirm('Force a complete re-sync of all data from the beginning?')) {
+                      onResetSync();
+                    }
+                  }}
+                  className="w-full"
+                >
+                  Reset Full Sync
+                </Button>
+              </div>
+            </details>
           </div>
         );
 

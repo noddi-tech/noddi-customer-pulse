@@ -159,9 +159,20 @@ export default function Settings() {
   };
 
   const handleReExtractOrderLines = async () => {
-    if (!confirm('This will re-extract all order lines from existing bookings. Continue?')) return;
-    
     try {
+      // First, delete all existing order lines
+      const { error: deleteError } = await supabase
+        .from('order_lines')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all
+      
+      if (deleteError) {
+        console.error('Delete order lines error:', deleteError);
+        toast.error(`Failed to clear order lines: ${deleteError.message}`);
+        return;
+      }
+      
+      // Then reset sync state to force re-extraction
       const { error } = await supabase.from('sync_state').upsert({
         resource: 'order_lines',
         sync_mode: 'full',
@@ -179,8 +190,9 @@ export default function Settings() {
         return;
       }
       
-      toast.success('Order lines extraction reset! Click "Manual Sync Now" to begin.');
+      toast.success('Order lines cleared! Auto-sync will re-extract in ~2 minutes.');
       queryClient.invalidateQueries({ queryKey: ["sync-status"] });
+      queryClient.invalidateQueries({ queryKey: ["database-counts"] });
     } catch (error: any) {
       console.error('Re-extract exception:', error);
       toast.error(`Failed to reset: ${error.message || 'Unknown error'}`);
@@ -518,6 +530,7 @@ export default function Settings() {
                       onComputeSegments={handleComputeSegments}
                       onViewDashboard={() => window.location.href = "/"}
                       onResetSync={handleResetSync}
+                      onReExtractOrderLines={handleReExtractOrderLines}
                       isSyncing={syncMutation.isPending || isRunning}
                       isComputing={isComputingSegments}
                       phase3Progress={orderLinesProgress}
