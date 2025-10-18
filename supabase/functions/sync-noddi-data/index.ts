@@ -226,20 +226,13 @@ async function upsertBookings(rows: any[]) {
   console.log(`[bookings] ✓ Upserted ${mapped.length} bookings with booking_items${skippedCount > 0 ? ` (skipped ${skippedCount} orphaned)` : ''}`);
 }
 
-// NEW: Extract order lines from booking_items JSONB stored in database (no API calls)
+// Extract order lines from booking_items JSONB (passed directly from batch query)
 async function upsertOrderLinesFromDbBookings(bookingsBatch: any[]): Promise<number> {
-  console.log(`[order_lines] Processing batch of ${bookingsBatch.length} bookings from database...`);
+  // bookingsBatch now contains { id, booking_items } - no additional fetch needed!
+  console.log(`[order_lines] Processing batch of ${bookingsBatch.length} bookings...`);
   
-  // Fetch bookings WITH booking_items from database (no API calls!)
-  const { data: bookingsWithItems, error: fetchError } = await sb
-    .from('bookings')
-    .select('id, booking_items')
-    .in('id', bookingsBatch.map(b => b.id));
-
-  if (fetchError) {
-    console.error('[order_lines] Error fetching bookings:', fetchError);
-    return 0;
-  }
+  // Use the bookings data passed directly (no second fetch!)
+  const bookingsWithItems = bookingsBatch;
 
   // Extract all order lines from booking_items JSONB
   const allLines: any[] = [];
@@ -439,10 +432,11 @@ Deno.serve(async (req) => {
     let totalBookingsProcessed = 0;
     let currentBatch = startBatch;
     
-    // Query total bookings count
+    // Query total bookings count (only bookings WITH items)
     const { count: totalBookingsCount } = await sb
       .from('bookings')
-      .select('*', { count: 'exact', head: true });
+      .select('*', { count: 'exact', head: true })
+      .not('booking_items', 'is', null);
     
     const totalBatches = Math.ceil((totalBookingsCount || 0) / batchSize);
     
@@ -456,10 +450,11 @@ Deno.serve(async (req) => {
     
     // Process bookings in batches
     while (currentBatch < totalBatches) {
-      // Fetch next batch of bookings from database
+      // Fetch next batch of bookings WITH items from database (skip legacy bookings)
       const { data: bookingsBatch, error: fetchError } = await sb
         .from('bookings')
-        .select('id')
+        .select('id, booking_items')
+        .not('booking_items', 'is', null)
         .range(currentBatch * batchSize, (currentBatch + 1) * batchSize - 1)
         .order('id', { ascending: true });
       
@@ -476,6 +471,10 @@ Deno.serve(async (req) => {
         console.log(`[order_lines] No more bookings to process at batch ${currentBatch}`);
         break;
       }
+      
+      // Log how many bookings actually contain items
+      const withItems = bookingsBatch.filter(b => b.booking_items?.length > 0);
+      console.log(`[order_lines] Batch ${currentBatch}: ${withItems.length}/${bookingsBatch.length} bookings have items`);
       
       // Extract order lines from this batch
       const linesExtracted = await upsertOrderLinesFromDbBookings(bookingsBatch);
