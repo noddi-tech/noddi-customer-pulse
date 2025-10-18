@@ -142,7 +142,7 @@ export default function Settings() {
         progress_percentage: 0,
         status: 'pending',
         error_message: null
-      }).in('resource', ['customers', 'bookings']);
+      }).in('resource', ['customers', 'bookings', 'order_lines']);
 
       if (error) {
         console.error('Reset sync error:', error);
@@ -155,6 +155,35 @@ export default function Settings() {
     } catch (error: any) {
       console.error('Reset sync exception:', error);
       toast.error(`Failed to reset sync: ${error.message || 'Unknown error'}`);
+    }
+  };
+
+  const handleReExtractOrderLines = async () => {
+    if (!confirm('This will re-extract all order lines from existing bookings. Continue?')) return;
+    
+    try {
+      const { error } = await supabase.from('sync_state').upsert({
+        resource: 'order_lines',
+        sync_mode: 'full',
+        current_page: 0,
+        rows_fetched: 0,
+        progress_percentage: 0,
+        status: 'pending',
+        error_message: null,
+        last_run_at: new Date().toISOString(),
+      }, { onConflict: 'resource' });
+
+      if (error) {
+        console.error('Re-extract order lines error:', error);
+        toast.error(`Failed to reset order lines: ${error.message}`);
+        return;
+      }
+      
+      toast.success('Order lines extraction reset! Click "Manual Sync Now" to begin.');
+      queryClient.invalidateQueries({ queryKey: ["sync-status"] });
+    } catch (error: any) {
+      console.error('Re-extract exception:', error);
+      toast.error(`Failed to reset: ${error.message || 'Unknown error'}`);
     }
   };
 
@@ -319,6 +348,7 @@ export default function Settings() {
           {(() => {
             const customersStatus = syncStatus?.find((s) => s.resource === "customers");
             const bookingsStatus = syncStatus?.find((s) => s.resource === "bookings");
+            const orderLinesStatus = syncStatus?.find((s) => s.resource === "order_lines");
             
             const customersProgress = customersStatus?.estimated_total && dbCounts?.customers
               ? Math.min(100, (dbCounts.customers / customersStatus.estimated_total) * 100)
@@ -327,11 +357,9 @@ export default function Settings() {
               ? Math.min(100, (dbCounts.bookings / bookingsStatus.estimated_total) * 100)
               : 0;
 
-            // PHASE 1: Add order lines progress tracking
+            // Use order_lines sync_state for accurate progress
+            const orderLinesProgress = orderLinesStatus?.progress_percentage || 0;
             const expectedOrderLines = (dbCounts?.bookings || 0) * 2.5;
-            const orderLinesProgress = expectedOrderLines > 0
-              ? Math.min(100, ((dbCounts?.order_lines || 0) / expectedOrderLines) * 100)
-              : 0;
 
             const isRunning = syncStatus?.some((s) => s.status === "running") ?? false;
             const hasError = syncStatus?.some((s) => s.status === "error") ?? false;
@@ -458,12 +486,15 @@ export default function Settings() {
 
                       <div ref={orderLinesProgress < 90 && bookingsProgress >= 100 && isRunning ? setActivePhaseRef : null}>
                         <SyncProgressBar
-                          resource="order lines"
+                          resource="order_lines"
                           progress={orderLinesProgress}
-                          total={Math.round(expectedOrderLines)}
+                          total={orderLinesStatus?.total_records || Math.round(expectedOrderLines)}
                           inDb={dbCounts?.order_lines || 0}
-                          status={orderLinesProgress >= 90 ? "complete" : isRunning ? "running" : "pending"}
-                          estimatedTime={estimateOrderLinesTime()}
+                          status={orderLinesStatus?.status || "pending"}
+                          estimatedTime={orderLinesStatus?.total_records
+                            ? ((orderLinesStatus.total_records - (orderLinesStatus.current_page || 0) * 100) / 100) * 10
+                            : 0
+                          }
                         />
                       </div>
                     </div>
@@ -480,6 +511,28 @@ export default function Settings() {
                           : undefined
                       }
                     />
+
+                    <div className="flex gap-2 pt-4 border-t">
+                      <Button 
+                        variant="outline" 
+                        onClick={handleReExtractOrderLines} 
+                        disabled={isRunning}
+                        className="flex-1"
+                      >
+                        Re-extract Order Lines
+                      </Button>
+                    </div>
+
+                    <div className="flex gap-2 pt-4 border-t">
+                      <Button 
+                        variant="outline" 
+                        onClick={handleReExtractOrderLines} 
+                        disabled={isRunning}
+                        className="flex-1"
+                      >
+                        Re-extract Order Lines
+                      </Button>
+                    </div>
 
                     <SyncActionButtons
                       syncState={syncState}

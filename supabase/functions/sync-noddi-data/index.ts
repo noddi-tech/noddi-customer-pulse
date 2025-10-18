@@ -216,63 +216,87 @@ async function upsertBookings(rows: any[]) {
   console.log(`[bookings] ✓ Upserted ${mapped.length} bookings${skippedCount > 0 ? ` (skipped ${skippedCount} orphaned)` : ''}`);
 }
 
-// PHASE 3: Flatten booking_items[].sales_items[] into order_lines
-async function upsertOrderLinesForBookings(bookingsPage: any[]) {
+// NEW: Extract order lines from DB bookings by fetching detailed booking data from API
+async function upsertOrderLinesFromDbBookings(bookingsBatch: any[]): Promise<number> {
   const lines: any[] = [];
+  let fetchedCount = 0;
 
-  for (const b of bookingsPage) {
-    const bookingId = toNum(b?.id);
-    if (!bookingId) continue;
-    
-    const items = Array.isArray(b?.booking_items) ? b.booking_items : [];
+  for (const booking of bookingsBatch) {
+    try {
+      // Fetch detailed booking data from Noddi API to get nested items
+      const url = `${API}/v1/bookings/${booking.id}`;
+      const res = await fetch(url, {
+        headers: { Accept: "application/json", Authorization: `Api-Key ${KEY}` },
+      });
 
-    for (const bi of items) {
-      const sales = Array.isArray(bi?.sales_items) ? bi.sales_items : [];
-      for (const si of sales) {
-        const id = toNum(si?.id);
-        if (!id) continue;
-
-        lines.push({
-          id,
-          booking_id: bookingId,
-          sales_item_id: id,
-          description: si?.name ?? si?.name_internal ?? bi?.title ?? null,
-          quantity: Number(si?.quantity ?? 1),
-          amount_gross: Number(si?.price?.amount ?? si?.amount_gross?.amount ?? 0),
-          amount_vat: Number(si?.amount_vat?.amount ?? 0),
-          currency: si?.price?.currency ?? si?.currency ?? 'NOK',
-          is_discount: Boolean(si?.is_discount ?? false),
-          is_delivery_fee: Boolean(si?.is_delivery_fee ?? false),
-          created_at: si?.created_at ?? b?.created_at ?? null,
-        });
+      if (!res.ok) {
+        console.warn(`[order_lines] Failed to fetch booking ${booking.id}: ${res.status}`);
+        continue;
       }
+
+      const b = await res.json();
+      fetchedCount++;
+      
+      const bookingId = toNum(b?.id);
+      if (!bookingId) continue;
+      
+      const items = Array.isArray(b?.booking_items) ? b.booking_items : [];
+
+      for (const bi of items) {
+        const sales = Array.isArray(bi?.sales_items) ? bi.sales_items : [];
+        for (const si of sales) {
+          const id = toNum(si?.id);
+          if (!id) continue;
+
+          lines.push({
+            id,
+            booking_id: bookingId,
+            sales_item_id: id,
+            description: si?.name ?? si?.name_internal ?? bi?.title ?? null,
+            quantity: Number(si?.quantity ?? 1),
+            amount_gross: Number(si?.price?.amount ?? si?.amount_gross?.amount ?? 0),
+            amount_vat: Number(si?.amount_vat?.amount ?? 0),
+            currency: si?.price?.currency ?? si?.currency ?? 'NOK',
+            is_discount: Boolean(si?.is_discount ?? false),
+            is_delivery_fee: Boolean(si?.is_delivery_fee ?? false),
+            created_at: si?.created_at ?? b?.created_at ?? null,
+          });
+        }
+      }
+
+      // Rate limiting: 10ms delay between API calls
+      await new Promise(resolve => setTimeout(resolve, 10));
+    } catch (error) {
+      console.warn(`[order_lines] Error processing booking ${booking.id}:`, error);
     }
   }
 
-  if (lines.length === 0) return;
+  if (lines.length === 0) {
+    console.log(`[order_lines] No lines extracted from ${bookingsBatch.length} bookings`);
+    return 0;
+  }
 
-  // Deduplicate by ID
-  const seen = new Set<number>();
-  const uniqueLines = lines.filter(l => {
-    if (seen.has(l.id)) {
-      console.log(`[order_lines] Duplicate ID ${l.id}, skipping`);
-      return false;
+  // Upsert in chunks to avoid payload size limits
+  const chunkSize = 500;
+  let totalUpserted = 0;
+
+  for (let i = 0; i < lines.length; i += chunkSize) {
+    const chunk = lines.slice(i, i + chunkSize);
+    
+    const { error } = await sb
+      .from("order_lines")
+      .upsert(chunk, { onConflict: "id", ignoreDuplicates: true });
+
+    if (error) {
+      console.error(`[order_lines] Upsert error for chunk ${i / chunkSize}:`, error);
+      // Continue with next chunk instead of throwing
+    } else {
+      totalUpserted += chunk.length;
     }
-    seen.add(l.id);
-    return true;
-  });
-
-  if (uniqueLines.length !== lines.length) {
-    console.log(`[order_lines] Deduped ${lines.length} → ${uniqueLines.length} lines`);
   }
 
-  const { error } = await sb.from('order_lines').upsert(uniqueLines, { onConflict: 'id' });
-  if (error) {
-    console.error('[order_lines] Error upserting:', error);
-    throw error;
-  }
-  
-  console.log(`[order_lines] ✓ Upserted ${uniqueLines.length} lines`);
+  console.log(`[order_lines] Extracted ${totalUpserted} lines from ${fetchedCount} bookings`);
+  return totalUpserted;
 }
 
 
@@ -400,10 +424,78 @@ Deno.serve(async (req) => {
     
     console.log(`[PHASE 2] ✓ Bookings complete: ${bookingsFetched} synced`);
 
-    // ===== PHASE 3: SYNC ORDER LINES (AFTER bookings exist) =====
+    // ===== PHASE 3: SYNC ORDER LINES (Process ALL bookings from DB) =====
     console.log("\n[PHASE 3] === Syncing Order Lines ===");
-    await upsertOrderLinesForBookings(allBookingsForOrderLines);
-    console.log(`[PHASE 3] ✓ Order lines complete`);
+    
+    const orderLinesState = await getState('order_lines');
+    const startBatch = orderLinesState.current_page || 0;
+    const batchSize = 100; // Process 100 bookings at a time
+    let totalOrderLinesProcessed = 0;
+    let currentBatch = startBatch;
+    
+    // Query total bookings count
+    const { count: totalBookingsCount } = await sb
+      .from('bookings')
+      .select('*', { count: 'exact', head: true });
+    
+    const totalBatches = Math.ceil((totalBookingsCount || 0) / batchSize);
+    
+    console.log(`[order_lines] Starting batch extraction: batch ${currentBatch}/${totalBatches}`);
+    
+    // Update state to running
+    await setState('order_lines', {
+      status: 'running',
+      total_records: totalBookingsCount,
+    });
+    
+    // Process bookings in batches
+    while (currentBatch < totalBatches) {
+      // Fetch next batch of bookings from database
+      const { data: bookingsBatch, error: fetchError } = await sb
+        .from('bookings')
+        .select('id')
+        .range(currentBatch * batchSize, (currentBatch + 1) * batchSize - 1)
+        .order('id', { ascending: true });
+      
+      if (fetchError) {
+        console.error(`[order_lines] Error fetching batch ${currentBatch}:`, fetchError);
+        await setState('order_lines', {
+          status: 'error',
+          error_message: fetchError.message,
+        });
+        throw fetchError;
+      }
+      
+      if (!bookingsBatch || bookingsBatch.length === 0) {
+        console.log(`[order_lines] No more bookings to process at batch ${currentBatch}`);
+        break;
+      }
+      
+      // Extract order lines from this batch
+      const linesProcessed = await upsertOrderLinesFromDbBookings(bookingsBatch);
+      totalOrderLinesProcessed += linesProcessed;
+      
+      currentBatch++;
+      
+      // Update progress
+      const progressPct = Math.min(100, (currentBatch / totalBatches) * 100);
+      await setState('order_lines', {
+        current_page: currentBatch,
+        rows_fetched: totalOrderLinesProcessed,
+        progress_percentage: progressPct,
+        status: 'running',
+      });
+      
+      console.log(`[order_lines] Batch ${currentBatch}/${totalBatches} complete: ${linesProcessed} lines, ${progressPct.toFixed(1)}% done`);
+    }
+    
+    // Mark order_lines as complete
+    await setState('order_lines', {
+      status: 'success',
+      progress_percentage: 100,
+    });
+    
+    console.log(`[PHASE 3] ✓ Order lines complete: ${totalOrderLinesProcessed} processed from ${currentBatch} batches`);
     
     // ===== PHASE 4: HEALTH CHECK =====
     console.log("\n[PHASE 4] === Health Check ===");
