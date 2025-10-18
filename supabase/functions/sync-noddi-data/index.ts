@@ -258,18 +258,18 @@ async function upsertOrderLinesFromDbBookings(bookingsBatch: any[]): Promise<num
         const salesItemId = toNum(salesItem?.id);
         if (!salesItemId) continue;
 
-        // Map to order_lines structure with unique UUID
+        // Map to order_lines structure with unique UUID (using direct field access)
         allLines.push({
           id: crypto.randomUUID(), // Generate unique UUID for each instance
           booking_id: booking.id,
-          sales_item_id: salesItem.sales_item?.id || salesItemId,
-          description: salesItem.sales_item?.name || salesItem.description || null,
+          sales_item_id: salesItemId,
+          description: salesItem.name || salesItem.name_internal || null,
           quantity: Number(salesItem.quantity || 1),
-          amount_gross: Number(salesItem.sales_item?.price_gross?.amount || 0),
-          amount_vat: Number(salesItem.sales_item?.price_vat?.amount || 0),
-          currency: salesItem.sales_item?.price_gross?.currency || 'NOK',
-          is_discount: Boolean(salesItem.sales_item?.is_discount || false),
-          is_delivery_fee: Boolean(salesItem.sales_item?.is_delivery_window_fee || false),
+          amount_gross: Number(salesItem.price?.amount || 0),
+          amount_vat: 0, // Not provided in Noddi API, would need to calculate from VAT rate
+          currency: salesItem.price?.currency || 'NOK',
+          is_discount: salesItem.category === 'DISCOUNT',
+          is_delivery_fee: salesItem.category === 'DELIVERY_FEE',
           created_at: salesItem.created_at || bookingItem.created_at || new Date().toISOString()
         });
       }
