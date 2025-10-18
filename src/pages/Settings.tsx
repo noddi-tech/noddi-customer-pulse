@@ -129,15 +129,16 @@ export default function Settings() {
   };
 
   const handleResetSync = async () => {
-    if (!confirm('This will force a complete re-sync of all data. Continue?')) return;
+    if (!confirm('This will force a complete re-sync of all data from the beginning. Continue?')) return;
     
     try {
+      // PART 3 FIX: Reset to full sync mode (epoch watermark ensures all records are fetched)
       const { error } = await supabase.from('sync_state').update({
-        sync_mode: 'initial',
+        sync_mode: 'full',
         max_id_seen: 0,
         current_page: 0,
         rows_fetched: 0,
-        high_watermark: null,
+        high_watermark: '1970-01-01T00:00:00.000Z', // Epoch timestamp
         progress_percentage: 0,
         status: 'pending',
         error_message: null
@@ -149,7 +150,7 @@ export default function Settings() {
         return;
       }
       
-      toast.success('Sync reset to initial mode! Click "Manual Sync Now" to start full re-sync.');
+      toast.success('Full re-sync initiated! All data will be fetched from scratch. Click "Manual Sync Now" to begin.');
       queryClient.invalidateQueries({ queryKey: ["sync-status"] });
     } catch (error: any) {
       console.error('Reset sync exception:', error);

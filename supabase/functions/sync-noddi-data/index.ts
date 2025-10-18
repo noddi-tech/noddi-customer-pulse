@@ -50,7 +50,8 @@ async function* paged(
   maxPages: number, 
   knownMaxId: number,
   syncMode: string,
-  startPage: number = 0
+  startPage: number = 0,
+  highWatermark: string | null = null
 ) {
   const baseUrl = API.replace(/\/+$/, "");
   let page_index = startPage;
@@ -100,7 +101,23 @@ async function* paged(
     }
     
     const maxIdInPage = rows.length > 0 ? Math.max(...rows.map((r: any) => r.id)) : 0;
-    const hasNewRecords = maxIdInPage > knownMaxId;
+    
+    // PART 1 FIX: Use timestamp-based incremental sync instead of ID-based
+    let hasNewRecords = true;
+    if (syncMode === 'incremental' && highWatermark && page_index > 0) {
+      const watermarkTime = new Date(highWatermark).getTime();
+      const maxUpdatedInPage = rows.reduce((max: number, r: any) => {
+        const recordTime = new Date(r.updated_at || r.created_at).getTime();
+        return Math.max(max, recordTime);
+      }, 0);
+      
+      hasNewRecords = maxUpdatedInPage > watermarkTime;
+      
+      if (!hasNewRecords) {
+        console.log(`[sync] No new records (all older than ${highWatermark}), stopping`);
+        break;
+      }
+    }
     
     yield { rows, page_index, maxIdInPage, hasNewRecords, totalCount };
     page_index++;
@@ -108,11 +125,6 @@ async function* paged(
     
     if (pagesProcessed >= maxPages) {
       console.log(`[sync] Reached page limit for this run (${maxPages}), will resume next time`);
-      break;
-    }
-    
-    if (syncMode === 'incremental' && !hasNewRecords) {
-      console.log(`[sync] No new records found (max ID ${maxIdInPage} <= known ${knownMaxId}), stopping`);
       break;
     }
   }
@@ -145,28 +157,54 @@ async function upsertCustomers(rows: any[]) {
 async function upsertBookings(rows: any[]) {
   if (!rows.length) return;
   
-  const mapped = rows.map((b: any) => {
-    const ug = b?.user_group ?? {};
-    const primaryUserId =
-      ug?.users && Array.isArray(ug.users) && ug.users.length > 0
-        ? ug.users[0]?.id
-        : null;
+  // PART 2A FIX: Filter out orphaned bookings (skip bookings with missing customers)
+  const userIds = [...new Set(rows.map(r => {
+    const ug = r?.user_group ?? {};
+    return ug?.users && Array.isArray(ug.users) && ug.users.length > 0 ? ug.users[0]?.id : null;
+  }).filter(Boolean))];
+  
+  const { data: existingCustomers } = await sb
+    .from('customers')
+    .select('id')
+    .in('id', userIds);
+  
+  const existingIds = new Set(existingCustomers?.map(c => c.id) || []);
+  
+  const mapped = rows
+    .map((b: any) => {
+      const ug = b?.user_group ?? {};
+      const primaryUserId =
+        ug?.users && Array.isArray(ug.users) && ug.users.length > 0
+          ? ug.users[0]?.id
+          : null;
 
-    return {
-      id: toNum(b?.id),
-      user_group_id: toNum(ug?.id),
-      user_id: toNum(primaryUserId),
-      status_label: b?.status?.label ?? null,
-      started_at: b?.started_at ?? b?.estimated_service_start ?? null,
-      completed_at: b?.completed_at ?? null,
-      date: b?.date ?? null,
-      is_cancelled: Boolean(b?.is_cancelled),
-      is_fully_paid: b?.order?.is_fully_paid ?? null,
-      is_partially_unable_to_complete: Boolean(b?.is_partially_unable_to_complete),
-      is_fully_unable_to_complete: Boolean(b?.is_fully_unable_to_complete),
-      updated_at: b?.updated_at ?? null,
-    };
-  });
+      return {
+        id: toNum(b?.id),
+        user_group_id: toNum(ug?.id),
+        user_id: toNum(primaryUserId),
+        status_label: b?.status?.label ?? null,
+        started_at: b?.started_at ?? b?.estimated_service_start ?? null,
+        completed_at: b?.completed_at ?? null,
+        date: b?.date ?? null,
+        is_cancelled: Boolean(b?.is_cancelled),
+        is_fully_paid: b?.order?.is_fully_paid ?? null,
+        is_partially_unable_to_complete: Boolean(b?.is_partially_unable_to_complete),
+        is_fully_unable_to_complete: Boolean(b?.is_fully_unable_to_complete),
+        updated_at: b?.updated_at ?? null,
+      };
+    })
+    .filter(b => {
+      if (!b.user_id || !existingIds.has(b.user_id)) {
+        console.warn(`[bookings] Skipping booking ${b.id}: customer ${b.user_id} not found`);
+        return false;
+      }
+      return true;
+    });
+
+  if (mapped.length === 0) {
+    console.log(`[bookings] ⚠️ All ${rows.length} bookings skipped (orphaned)`);
+    return;
+  }
 
   const { error } = await sb.from('bookings').upsert(mapped, { onConflict: 'id' });
   if (error) {
@@ -174,7 +212,8 @@ async function upsertBookings(rows: any[]) {
     throw error;
   }
   
-  console.log(`[bookings] ✓ Upserted ${mapped.length} bookings`);
+  const skippedCount = rows.length - mapped.length;
+  console.log(`[bookings] ✓ Upserted ${mapped.length} bookings${skippedCount > 0 ? ` (skipped ${skippedCount} orphaned)` : ''}`);
 }
 
 // PHASE 3: Flatten booking_items[].sales_items[] into order_lines
@@ -277,7 +316,8 @@ Deno.serve(async (req) => {
       customersMaxPages,
       customersState.max_id_seen || 0,
       customersSyncMode,
-      customersStartPage
+      customersStartPage,
+      customersState.high_watermark
     )) {
       if (customerPages === 0 && totalCount !== undefined) {
         await setState("customers", { estimated_total: totalCount });
@@ -324,7 +364,8 @@ Deno.serve(async (req) => {
       bookingsMaxPages,
       bookingsState.max_id_seen || 0,
       bookingsSyncMode,
-      bookingsStartPage
+      bookingsStartPage,
+      bookingsState.high_watermark
     )) {
       if (bookingPages === 0 && totalCount !== undefined) {
         await setState("bookings", { estimated_total: totalCount });
