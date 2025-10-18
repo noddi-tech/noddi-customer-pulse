@@ -1,7 +1,9 @@
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
+import { AlertCircle } from "lucide-react";
 
 interface SyncProgressBarProps {
   resource: string;
@@ -44,11 +46,32 @@ export function SyncProgressBar({
   const isComplete = actualProgress >= 100 || status === 'completed';
   const isRunning = status === "running";
 
+  // PART 3: Detect order lines incomplete status (shows 100% but clearly wrong)
+  const isOrderLinesIncomplete = 
+    resource === "order_lines" && 
+    status === "success" && 
+    total && 
+    inDb < total * 0.5; // Less than 50% of expected
+
   const getBarColor = () => {
     if (isComplete) return "bg-green-500";
     if (isRunning) return "bg-blue-500";
     return "bg-primary";
   };
+
+  // Show warning if order lines appear incomplete
+  if (isOrderLinesIncomplete) {
+    return (
+      <Alert variant="default" className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950/30">
+        <AlertCircle className="h-4 w-4 text-yellow-600" />
+        <AlertTitle>⚠️ Order Lines Incomplete</AlertTitle>
+        <AlertDescription className="text-sm">
+          Extracted {inDb.toLocaleString()} lines but {total.toLocaleString()} expected.
+          This sync was interrupted. Will resume on next sync cycle.
+        </AlertDescription>
+      </Alert>
+    );
+  }
 
   return (
     <div className="space-y-2">
@@ -77,7 +100,11 @@ export function SyncProgressBar({
           {inDb.toLocaleString()} {total && `of ${total.toLocaleString()}`}
           {syncMode === "full" && currentPage !== undefined && total && total > 0 && (
             <span className="ml-2 text-blue-600 dark:text-blue-400">
-              (Page {currentPage}/~{Math.ceil(Math.max(total, (currentPage || 0) * 100) / 100)})
+              {/* PART 2: Fix page number display - different for order_lines vs API resources */}
+              {resource === "order_lines" 
+                ? `(Processing batch ${currentPage})`
+                : `(Page ${currentPage}/${Math.ceil(total / 100)})`
+              }
             </span>
           )}
         </span>

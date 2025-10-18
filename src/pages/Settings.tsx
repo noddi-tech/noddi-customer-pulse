@@ -22,7 +22,7 @@ import { WhatsNextCallout } from "@/components/settings/WhatsNextCallout";
 import { SyncTimeline } from "@/components/settings/SyncTimeline";
 import { SyncErrorAlert } from "@/components/settings/SyncErrorAlert";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Info, AlertCircle } from "lucide-react";
+import { Info, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Progress } from "@/components/ui/progress";
 import { formatDistanceToNow } from "date-fns";
@@ -385,12 +385,15 @@ export default function Settings() {
               ? Math.min(100, (dbCounts.bookings / bookingsStatus.estimated_total) * 100)
               : 0;
 
-            // Use order_lines sync_state for accurate progress
-            const orderLinesProgress = orderLinesStatus?.progress_percentage || 0;
+            // PART 6: Database-driven progress for order_lines (based on max_id_seen)
+            const orderLinesProgress = orderLinesStatus?.max_id_seen && dbCounts?.bookings
+              ? Math.min(100, (orderLinesStatus.max_id_seen / dbCounts.bookings) * 100)
+              : orderLinesStatus?.progress_percentage || 0;
             
-            // Fix expected order lines: use bookings with items, not all bookings
-            const bookingsWithItems = orderLinesStatus?.total_records || dbCounts?.bookings_with_user || 494;
-            const expectedOrderLines = bookingsWithItems * 1.3;
+            // PART 1: Fix expected order lines calculation using total bookings
+            const totalBookingsCount = dbCounts?.bookings || 20618;
+            const bookingsWithItemsEstimate = totalBookingsCount * 0.95; // 95% have items
+            const expectedOrderLines = bookingsWithItemsEstimate * 2.3; // avg 2.3 lines per booking
 
             const isRunning = syncStatus?.some((s) => s.status === "running") ?? false;
             const hasError = syncStatus?.some((s) => s.status === "error") ?? false;
@@ -411,15 +414,14 @@ export default function Settings() {
               return (remaining / rate) * 60; // in seconds
             };
 
-            // Estimate time remaining for full bookings sync (in seconds)
+            // PART 5: Fix bookings time estimate to show "per-run" instead of total
             const estimateBookingsTime = () => {
               if (bookingsStatus?.sync_mode !== "full") return null;
               const currentPage = bookingsStatus.current_page || 0;
-              const estimatedPages = bookingsStatus.estimated_total 
-                ? Math.ceil(bookingsStatus.estimated_total / 100) 
-                : 300;
-              const pagesRemaining = Math.max(0, estimatedPages - currentPage);
-              return pagesRemaining * 120; // 2 minutes per page in seconds
+              const pagesPerRun = 5; // Max pages in 2-min auto-sync window
+              const remainingInRun = Math.min(pagesPerRun - (currentPage % pagesPerRun), pagesPerRun);
+              const secondsPerPage = 24; // Actual observed: ~24s per page
+              return remainingInRun * secondsPerPage;
             };
 
             // Detect stalled sync (no activity for >5 minutes)
@@ -513,6 +515,23 @@ export default function Settings() {
             </AlertDescription>
           </Alert>
 
+          {/* PART 4: Sync Running Smoothly indicator */}
+          {!isCustomersStalled && !isBookingsStalled && !isOrderLinesStalled && isRunning && (
+            <Alert className="mb-4 border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/30">
+              <CheckCircle2 className="h-4 w-4 text-green-600" />
+              <AlertTitle>✅ Sync Running Smoothly</AlertTitle>
+              <AlertDescription>
+                <p>
+                  Auto-sync is actively processing data. 
+                  <strong> No action needed</strong> - you can safely leave this page.
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Current progress: {Math.round((customersProgress + bookingsProgress + orderLinesProgress) / 3)}% overall
+                </p>
+              </AlertDescription>
+            </Alert>
+          )}
+
           {/* Stalled Sync Warning */}
           {(isCustomersStalled || isBookingsStalled || isOrderLinesStalled) && (
             <Alert variant="destructive" className="mb-4">
@@ -578,7 +597,7 @@ export default function Settings() {
                   </div>
                   {estimateBookingsTime() && (
                     <p className="text-xs text-muted-foreground">
-                      ~{Math.ceil((estimateBookingsTime() || 0) / 60)} minutes remaining
+                      ~{Math.ceil((estimateBookingsTime() || 0) / 60)} minutes remaining (this run)
                     </p>
                   )}
                 </div>
@@ -597,7 +616,7 @@ export default function Settings() {
                         from Noddi API to populate order line data.
                       </p>
                       <p>
-                        <strong>Estimated time:</strong> ~{Math.ceil((estimateBookingsTime() || 0) / 60)} minutes remaining
+                        <strong>Estimated time:</strong> ~{Math.ceil((estimateBookingsTime() || 0) / 60)} minutes remaining (this run)
                       </p>
                       <p className="text-xs">
                         ✅ You can safely leave this page. Auto-sync continues in the background.
