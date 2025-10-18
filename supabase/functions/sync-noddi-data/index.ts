@@ -490,102 +490,143 @@ Deno.serve(async (req) => {
       });
     }
     
-    // ===== PHASE 3: SYNC ORDER LINES (Process only NEWLY synced bookings) =====
+    // ===== PHASE 3: SYNC ORDER LINES (Database-driven, fully resumable) =====
     console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 3] === Syncing Order Lines ===`);
     
     const orderLinesState = await getState('order_lines');
-    const startBatch = 0; // Always start from 0 for current run's bookings
     const batchSize = 50;
     let totalOrderLinesExtracted = 0;
     let totalBookingsProcessed = 0;
     
-    // FIX: Only process bookings synced in THIS run (from allBookingsForOrderLines)
-    // NOT all bookings in database (which causes timeout)
-    const bookingsToProcess = allBookingsForOrderLines
-      .filter(b => Array.isArray(b?.booking_items) && b.booking_items.length > 0)
-      .map(b => ({ id: b.id, booking_items: b.booking_items }));
+    // Use max_id_seen to track last processed booking_id (resumable across runs)
+    const lastProcessedBookingId = orderLinesState.max_id_seen || 0;
+    console.log(`[order_lines] Resuming from booking_id > ${lastProcessedBookingId}`);
     
-    const totalBookingsCount = bookingsToProcess.length;
-    console.log(`[DEPLOYMENT ${DEPLOYMENT_VERSION}] [order_lines] Found ${totalBookingsCount} bookings with items in current run`);
+    // Query database for bookings with items that haven't been processed yet
+    const { data: bookingsToProcess, error: bookingsQueryError } = await sb
+      .from('bookings')
+      .select('id, booking_items')
+      .not('booking_items', 'is', null)
+      .gt('id', lastProcessedBookingId)
+      .order('id', { ascending: true })
+      .limit(500); // Process up to 500 bookings per run
     
-    const totalBatches = Math.ceil(totalBookingsCount / batchSize);
-    console.log(`[DEPLOYMENT ${DEPLOYMENT_VERSION}] [order_lines] Batch calculation: ${totalBookingsCount} bookings ÷ ${batchSize} per batch = ${totalBatches} total batches`);
-    
-    // Safety check: Ensure batch counter is valid for this run
-    let currentBatch = startBatch;
-    if (startBatch >= totalBatches && totalBatches > 0) {
-      console.log(`[order_lines] ⚠️ Batch counter (${startBatch}) >= total batches (${totalBatches}), resetting to 0`);
-      currentBatch = 0;
-    }
-    
-    if (totalBookingsCount === 0) {
-      console.log('[order_lines] No bookings with items in current run, skipping extraction');
-      await setState('order_lines', { status: 'pending', rows_fetched: 0 });
+    if (bookingsQueryError) {
+      console.error('[order_lines] Error querying bookings:', bookingsQueryError);
+      await setState('order_lines', {
+        status: 'error',
+        error_message: `Failed to query bookings: ${bookingsQueryError.message}`,
+      });
+    } else if (!bookingsToProcess || bookingsToProcess.length === 0) {
+      console.log('[order_lines] No more bookings to process, all caught up');
+      await setState('order_lines', {
+        status: 'success',
+        progress_percentage: 100,
+      });
     } else {
+      const totalBookingsCount = bookingsToProcess.length;
+      console.log(`[order_lines] Found ${totalBookingsCount} bookings to process (id range: ${bookingsToProcess[0].id} - ${bookingsToProcess[totalBookingsCount - 1].id})`);
+      
+      // Filter bookings that actually have items
+      const bookingsWithItems = bookingsToProcess.filter(b => 
+        Array.isArray(b.booking_items) && b.booking_items.length > 0
+      );
+      
+      console.log(`[order_lines] ${bookingsWithItems.length} of ${totalBookingsCount} bookings have items`);
+      
       // Update state to running
       await setState('order_lines', {
         status: 'running',
-        total_records: totalBookingsCount,
+        total_records: bookingsWithItems.length,
       });
       
       // Process bookings in batches
-      console.log(`[order_lines] Starting extraction loop: currentBatch=${currentBatch}, totalBatches=${totalBatches}, will run=${currentBatch < totalBatches}`);
+      const totalBatches = Math.ceil(bookingsWithItems.length / batchSize);
+      let currentBatch = 0;
+      let maxBookingIdProcessed = lastProcessedBookingId;
+      
+      console.log(`[order_lines] Processing ${totalBatches} batches of ${batchSize} bookings each`);
+      
       while (currentBatch < totalBatches) {
         // Check timeout before processing batch
         if (Date.now() - functionStartTime > MAX_RUNTIME_MS) {
-          console.log('[TIMEOUT] Saving order_lines progress and exiting');
+          console.log(`[TIMEOUT] Saving order_lines progress at booking_id ${maxBookingIdProcessed}`);
           await setState('order_lines', {
             status: 'pending',
-            current_page: currentBatch,
+            max_id_seen: maxBookingIdProcessed,
             rows_fetched: totalOrderLinesExtracted,
             progress_percentage: Math.min(100, (currentBatch / totalBatches) * 100),
           });
-          return new Response(JSON.stringify({ ok: true, timeout: true, totalOrderLinesExtracted }), {
+          return new Response(JSON.stringify({ 
+            ok: true, 
+            timeout: true, 
+            totalOrderLinesExtracted,
+            lastProcessedBookingId: maxBookingIdProcessed 
+          }), {
             headers: { ...corsHeaders, "content-type": "application/json" }
           });
         }
         
-        console.log(`[DEPLOYMENT ${DEPLOYMENT_VERSION}] [order_lines] Starting batch extraction: batch ${currentBatch}/${totalBatches}`);
-        
-        // FIX: Use pre-filtered bookings from current run, not database query
         const batchStart = currentBatch * batchSize;
-        const batchEnd = Math.min((currentBatch + 1) * batchSize, totalBookingsCount);
-        const bookingsBatch = bookingsToProcess.slice(batchStart, batchEnd);
+        const batchEnd = Math.min((currentBatch + 1) * batchSize, bookingsWithItems.length);
+        const bookingsBatch = bookingsWithItems.slice(batchStart, batchEnd);
         
         if (!bookingsBatch || bookingsBatch.length === 0) {
           console.log(`[order_lines] No more bookings to process at batch ${currentBatch}`);
           break;
         }
         
-        console.log(`[order_lines] Batch ${currentBatch}: ${bookingsBatch.length} bookings have items`);
+        console.log(`[order_lines] Batch ${currentBatch + 1}/${totalBatches}: Processing ${bookingsBatch.length} bookings`);
         
         // Extract order lines from this batch
         const linesExtracted = await upsertOrderLinesFromDbBookings(bookingsBatch);
-      totalOrderLinesExtracted += linesExtracted;
-      totalBookingsProcessed += bookingsBatch.length;
-      
-      currentBatch++;
-      
-      // Update progress - track actual order lines extracted, not bookings
-      const progressPct = Math.min(100, (currentBatch / totalBatches) * 100);
-      // Note: current_page will reset to 0 next run, only saved for timeout scenarios
-      await setState('order_lines', {
-        rows_fetched: totalOrderLinesExtracted, // Track lines, not bookings
-        progress_percentage: progressPct,
-        status: 'running',
-      });
-      
-      console.log(`[order_lines] Batch ${currentBatch}/${totalBatches} complete: ${linesExtracted} lines extracted (${totalOrderLinesExtracted} total), ${progressPct.toFixed(1)}% done`);
+        totalOrderLinesExtracted += linesExtracted;
+        totalBookingsProcessed += bookingsBatch.length;
+        
+        // Track highest booking_id in this batch
+        const batchMaxId = Math.max(...bookingsBatch.map(b => b.id));
+        maxBookingIdProcessed = Math.max(maxBookingIdProcessed, batchMaxId);
+        
+        currentBatch++;
+        
+        // Update progress - track actual order lines extracted and last processed ID
+        const progressPct = Math.min(100, (currentBatch / totalBatches) * 100);
+        await setState('order_lines', {
+          max_id_seen: maxBookingIdProcessed,
+          rows_fetched: totalOrderLinesExtracted,
+          progress_percentage: progressPct,
+          status: 'running',
+        });
+        
+        console.log(`[order_lines] Batch ${currentBatch}/${totalBatches} complete: ${linesExtracted} lines extracted (${totalOrderLinesExtracted} total), max_id=${maxBookingIdProcessed}, ${progressPct.toFixed(1)}% done`);
       }
       
-      // Mark order_lines as complete
-      await setState('order_lines', {
-        status: 'success',
-        progress_percentage: 100,
-        rows_fetched: totalOrderLinesExtracted,
-      });
+      // Check if there are more bookings to process
+      const { count: remainingCount } = await sb
+        .from('bookings')
+        .select('*', { count: 'exact', head: true })
+        .not('booking_items', 'is', null)
+        .gt('id', maxBookingIdProcessed);
       
-      console.log(`[PHASE 3] ✓ Order lines complete: ${totalOrderLinesExtracted} lines extracted from ${totalBookingsProcessed} bookings in ${currentBatch} batches`);
+      if (remainingCount && remainingCount > 0) {
+        console.log(`[order_lines] ${remainingCount} more bookings remaining, will continue next run`);
+        await setState('order_lines', {
+          status: 'pending',
+          max_id_seen: maxBookingIdProcessed,
+          rows_fetched: totalOrderLinesExtracted,
+          progress_percentage: 50, // Arbitrary - more work to do
+        });
+      } else {
+        console.log(`[order_lines] All bookings processed, marking complete`);
+        await setState('order_lines', {
+          status: 'success',
+          max_id_seen: maxBookingIdProcessed,
+          progress_percentage: 100,
+          rows_fetched: totalOrderLinesExtracted,
+        });
+      }
+      
+      console.log(`[PHASE 3] ✓ Order lines progress: ${totalOrderLinesExtracted} lines extracted from ${totalBookingsProcessed} bookings, last_id=${maxBookingIdProcessed}`);
     }
     
     // ===== PHASE 4: HEALTH CHECK =====
