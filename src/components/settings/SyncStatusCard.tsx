@@ -19,6 +19,9 @@ interface SyncStatusCardProps {
   errorMessage?: string;
   isComputingSegments?: boolean;
   lastComputeTime?: Date | null;
+  customersStatus?: any;
+  bookingsStatus?: any;
+  orderLinesStatus?: any;
 }
 
 export function SyncStatusCard({
@@ -36,6 +39,9 @@ export function SyncStatusCard({
   errorMessage,
   isComputingSegments,
   lastComputeTime,
+  customersStatus,
+  bookingsStatus,
+  orderLinesStatus,
 }: SyncStatusCardProps) {
   // Determine overall sync state
   const getSyncState = (): SyncState => {
@@ -67,24 +73,39 @@ export function SyncStatusCard({
         // Detect current phase based on what's actually running
         let currentPhase = "";
         let message = "";
+        let lastRunAt: Date | null = null;
         
-        if (customersProgress < 100) {
+        if (customersProgress < 100 && customersStatus?.status === "running") {
           currentPhase = `Phase 1/3: Syncing customers... (${Math.round(customersProgress)}%)`;
           message = `${customersInDb.toLocaleString()} customers synced`;
-        } else if (bookingsProgress < 100) {
-          currentPhase = `Phase 2/3: Syncing bookings... (${Math.round(bookingsProgress)}%)`;
-          message = `${bookingsInDb.toLocaleString()} bookings synced`;
-        } else {
+          lastRunAt = customersStatus?.last_run_at ? new Date(customersStatus.last_run_at) : null;
+        } else if (bookingsProgress < 100 && bookingsStatus?.status === "running") {
+          const mode = bookingsStatus?.sync_mode === "full" ? "FULL RE-SYNC" : "incremental";
+          const currentPage = bookingsStatus?.current_page || 0;
+          const estimatedPages = bookingsStatus?.estimated_total 
+            ? Math.ceil(bookingsStatus.estimated_total / 100) 
+            : 300;
+          
+          currentPhase = `Phase 2/3: Syncing bookings (${mode})... (${Math.round(bookingsProgress)}%)`;
+          message = `Page ${currentPage} of ~${estimatedPages} | ${bookingsInDb.toLocaleString()} bookings synced`;
+          lastRunAt = bookingsStatus?.last_run_at ? new Date(bookingsStatus.last_run_at) : null;
+        } else if (orderLinesStatus?.status === "running") {
           currentPhase = `Phase 3/3: Extracting order lines... (${Math.round(orderLinesProgress)}%)`;
           message = `${orderLinesInDb.toLocaleString()} / ${expectedOrderLines.toLocaleString()} order lines extracted`;
+          lastRunAt = orderLinesStatus?.last_run_at ? new Date(orderLinesStatus.last_run_at) : null;
         }
+        
+        // Check for stalled sync (no activity for 3+ minutes)
+        const timeSinceLastRun = lastRunAt ? Date.now() - lastRunAt.getTime() : null;
+        const isStalled = timeSinceLastRun && timeSinceLastRun > 180000;
         
         return {
           icon: RefreshCw,
           iconClass: "text-blue-500 animate-spin",
           bgClass: "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900",
           title: currentPhase,
-          message: message,
+          message: message + (lastRunAt ? ` | Last activity ${formatDistanceToNow(lastRunAt, { addSuffix: true })}` : ''),
+          isStalled,
         };
       case "ready-to-compute":
         const needsCompute = !lastComputeTime || (customersProgress >= 100 && bookingsProgress >= 100);
@@ -134,7 +155,13 @@ export function SyncStatusCard({
         <div className="flex-1 space-y-1">
           <h3 className="text-sm font-semibold">{config.title}</h3>
           <p className="text-sm text-muted-foreground">{config.message}</p>
-          {isRunning && (
+          {(config as any).isStalled && (
+            <p className="text-xs text-yellow-600 dark:text-yellow-500 mt-2 flex items-center gap-1">
+              <AlertCircle className="h-3 w-3" />
+              ⚠️ No activity for 3+ minutes. Auto-sync may be delayed or stuck.
+            </p>
+          )}
+          {isRunning && !(config as any).isStalled && (
             <p className="text-xs text-muted-foreground mt-2">
               ⚠️ Auto-sync will continue every 2 minutes until complete
             </p>

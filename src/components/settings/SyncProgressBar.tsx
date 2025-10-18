@@ -1,5 +1,7 @@
 import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { formatDistanceToNow } from "date-fns";
 
 interface SyncProgressBarProps {
   resource: string;
@@ -8,6 +10,9 @@ interface SyncProgressBarProps {
   inDb: number;
   status: string;
   estimatedTime?: number;
+  syncMode?: string;
+  currentPage?: number;
+  lastRunAt?: Date | null;
 }
 
 export function SyncProgressBar({
@@ -17,6 +22,9 @@ export function SyncProgressBar({
   inDb,
   status,
   estimatedTime,
+  syncMode,
+  currentPage,
+  lastRunAt,
 }: SyncProgressBarProps) {
   // Calculate actual progress with multiple fallbacks
   const getActualProgress = () => {
@@ -45,7 +53,12 @@ export function SyncProgressBar({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between text-sm">
-        <span className="font-medium capitalize">{resource}</span>
+        <div className="flex items-center gap-2">
+          <span className="font-medium capitalize">{resource}</span>
+          {syncMode === "full" && (
+            <Badge variant="destructive" className="text-xs">FULL SYNC</Badge>
+          )}
+        </div>
         <span className={cn("font-semibold", isComplete && "text-green-600 dark:text-green-400")}>
           {actualProgress}%
         </span>
@@ -62,12 +75,22 @@ export function SyncProgressBar({
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>
           {inDb.toLocaleString()} {total && `of ${total.toLocaleString()}`}
+          {syncMode === "full" && currentPage !== undefined && total && (
+            <span className="ml-2 text-blue-600 dark:text-blue-400">
+              (Page {currentPage}/~{Math.ceil(total / 100)})
+            </span>
+          )}
         </span>
-        {estimatedTime && estimatedTime > 0 && !isComplete && (
-          <span className="flex items-center gap-1">
-            ~{Math.ceil(estimatedTime / 60)} min remaining
-          </span>
-        )}
+        <div className="flex flex-col items-end gap-0.5">
+          {estimatedTime && estimatedTime > 0 && !isComplete && (
+            <span>~{Math.ceil(estimatedTime / 60)} min remaining</span>
+          )}
+          {lastRunAt && (
+            <span className="text-[10px]">
+              Last update: {formatDistanceToNow(lastRunAt, { addSuffix: true })}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );

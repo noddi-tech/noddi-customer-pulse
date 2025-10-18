@@ -20,9 +20,13 @@ import { SyncWorkflowGuide } from "@/components/settings/SyncWorkflowGuide";
 import { SyncActionButtons } from "@/components/settings/SyncActionButtons";
 import { WhatsNextCallout } from "@/components/settings/WhatsNextCallout";
 import { SyncTimeline } from "@/components/settings/SyncTimeline";
+import { SyncErrorAlert } from "@/components/settings/SyncErrorAlert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Info } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Progress } from "@/components/ui/progress";
 import { formatDistanceToNow } from "date-fns";
+import { cn } from "@/lib/utils";
 
 export default function Settings() {
   const { data: thresholds, refetch } = useSettings();
@@ -371,7 +375,10 @@ export default function Settings() {
 
             // Use order_lines sync_state for accurate progress
             const orderLinesProgress = orderLinesStatus?.progress_percentage || 0;
-            const expectedOrderLines = (dbCounts?.bookings || 0) * 2.5;
+            
+            // Fix expected order lines: use bookings with items, not all bookings
+            const bookingsWithItems = orderLinesStatus?.total_records || dbCounts?.bookings_with_user || 494;
+            const expectedOrderLines = bookingsWithItems * 1.3;
 
             const isRunning = syncStatus?.some((s) => s.status === "running") ?? false;
             const hasError = syncStatus?.some((s) => s.status === "error") ?? false;
@@ -390,6 +397,17 @@ export default function Settings() {
               const remaining = expectedOrderLines - (dbCounts?.order_lines || 0);
               const rate = 750; // order lines per minute
               return (remaining / rate) * 60; // in seconds
+            };
+
+            // Estimate time remaining for full bookings sync
+            const estimateBookingsTime = () => {
+              if (bookingsStatus?.sync_mode !== "full") return null;
+              const currentPage = bookingsStatus.current_page || 0;
+              const estimatedPages = bookingsStatus.estimated_total 
+                ? Math.ceil(bookingsStatus.estimated_total / 100) 
+                : 300;
+              const pagesRemaining = Math.max(0, estimatedPages - currentPage);
+              return pagesRemaining * 2; // 2 minutes per page (auto-sync interval)
             };
 
             // Determine sync state
@@ -438,6 +456,59 @@ export default function Settings() {
 
             return (
               <>
+                {/* Error alerts for any failed syncs */}
+                {syncStatus?.filter(s => s.error_message).map(status => (
+                  <SyncErrorAlert
+                    key={status.resource}
+                    resource={status.resource}
+                    errorMessage={status.error_message!}
+                    lastRunAt={status.last_run_at ? new Date(status.last_run_at) : null}
+                  />
+                ))}
+
+                {/* Auto-sync status banner */}
+                <Alert className="mb-4">
+                  <RefreshCw className={cn(
+                    "h-4 w-4",
+                    isAnySyncRunning && "animate-spin"
+                  )} />
+                  <AlertTitle>Auto-Sync Status</AlertTitle>
+                  <AlertDescription>
+                    {isAnySyncRunning ? (
+                      <>
+                        ✅ <strong>Active</strong> - Syncing in background every 2 minutes
+                      </>
+                    ) : (
+                      <>
+                        💤 <strong>Idle</strong> - Next sync in ~2 minutes
+                        {syncStatus?.some(s => s.status === 'pending') && (
+                          <span className="ml-2">(waiting to start)</span>
+                        )}
+                      </>
+                    )}
+                  </AlertDescription>
+                </Alert>
+
+                {/* Full sync warning */}
+                {bookingsStatus?.sync_mode === "full" && bookingsStatus?.status === "running" && (
+                  <Alert className="mb-4">
+                    <Info className="h-4 w-4" />
+                    <AlertTitle>Full Data Re-Sync in Progress</AlertTitle>
+                    <AlertDescription className="space-y-2">
+                      <p>
+                        Fetching ALL {bookingsStatus.estimated_total?.toLocaleString() || '~21,000'} bookings 
+                        from Noddi API to populate order line data.
+                      </p>
+                      <p>
+                        <strong>Estimated time:</strong> ~{estimateBookingsTime()} minutes remaining
+                      </p>
+                      <p className="text-xs">
+                        ✅ You can safely leave this page. Auto-sync continues in the background.
+                      </p>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
                 <SyncStatusCard
                   customersProgress={customersProgress}
                   bookingsProgress={bookingsProgress}
@@ -452,6 +523,9 @@ export default function Settings() {
                   hasError={hasError}
                   isComputingSegments={isComputingSegments}
                   lastComputeTime={lastComputeTime}
+                  customersStatus={customersStatus}
+                  bookingsStatus={bookingsStatus}
+                  orderLinesStatus={orderLinesStatus}
                 />
 
                 <WhatsNextCallout type={getWhatsNextType()} />
@@ -483,6 +557,9 @@ export default function Settings() {
                           total={customersStatus?.estimated_total}
                           inDb={dbCounts?.customers || 0}
                           status={customersStatus?.status || "pending"}
+                          syncMode={customersStatus?.sync_mode}
+                          currentPage={customersStatus?.current_page}
+                          lastRunAt={customersStatus?.last_run_at ? new Date(customersStatus.last_run_at) : null}
                         />
                       </div>
                       
@@ -493,6 +570,10 @@ export default function Settings() {
                           total={bookingsStatus?.estimated_total}
                           inDb={dbCounts?.bookings || 0}
                           status={bookingsStatus?.status || "pending"}
+                          syncMode={bookingsStatus?.sync_mode}
+                          currentPage={bookingsStatus?.current_page}
+                          lastRunAt={bookingsStatus?.last_run_at ? new Date(bookingsStatus.last_run_at) : null}
+                          estimatedTime={bookingsStatus?.sync_mode === "full" ? (estimateBookingsTime() || 0) * 60 : undefined}
                         />
                       </div>
 
@@ -503,6 +584,9 @@ export default function Settings() {
                           total={orderLinesStatus?.total_records || Math.round(expectedOrderLines)}
                           inDb={dbCounts?.order_lines || 0}
                           status={orderLinesStatus?.status || "pending"}
+                          syncMode={orderLinesStatus?.sync_mode}
+                          currentPage={orderLinesStatus?.current_page}
+                          lastRunAt={orderLinesStatus?.last_run_at ? new Date(orderLinesStatus.last_run_at) : null}
                           estimatedTime={orderLinesStatus?.total_records
                             ? ((orderLinesStatus.total_records - (orderLinesStatus.current_page || 0) * 100) / 100) * 10
                             : 0

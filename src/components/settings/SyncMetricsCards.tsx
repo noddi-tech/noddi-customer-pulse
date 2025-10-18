@@ -9,6 +9,7 @@ interface SyncMetricsCardsProps {
   orderLines: number;
   expectedOrderLines: number;
   lastSyncAt?: Date;
+  bookingsWithItems?: number;
 }
 
 export function SyncMetricsCards({
@@ -18,6 +19,7 @@ export function SyncMetricsCards({
   orderLines,
   expectedOrderLines,
   lastSyncAt,
+  bookingsWithItems,
 }: SyncMetricsCardsProps) {
   const orderLinesComplete = orderLines >= expectedOrderLines * 0.9;
   const metrics = [
