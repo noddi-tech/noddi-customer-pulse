@@ -557,7 +557,9 @@ Deno.serve(async (req) => {
       if (bookingsState.sync_mode === 'full') {
         console.log('[PHASE 1] Forcing full sync because bookings are in full mode');
         membersSyncMode = 'full';
-        membersCurrentPage = 0;
+        // Resume from saved progress, don't reset to 0
+        membersCurrentPage = membersState.current_page || 0;
+        console.log(`[PHASE 1] Resuming full sync from page ${membersCurrentPage}`);
       }
       
       const membersMaxPages = 10;
