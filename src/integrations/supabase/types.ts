@@ -480,6 +480,29 @@ export type Database = {
       }
     }
     Functions: {
+      get_churn_timeline: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          churn_period: string
+          customer_count: number
+          period_order: number
+        }[]
+      }
+      get_lifecycle_insights: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          avg_frequency_24m: number
+          avg_margin_24m: number
+          avg_recency_days: number
+          avg_revenue_24m: number
+          customer_count: number
+          lifecycle: string
+        }[]
+      }
+      get_product_line_stats: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
       get_segment_counts: {
         Args: Record<PropertyKey, never>
         Returns: Json
