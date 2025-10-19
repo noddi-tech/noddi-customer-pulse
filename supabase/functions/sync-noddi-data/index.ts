@@ -518,7 +518,8 @@ Deno.serve(async (req) => {
       if (userGroupsReachedEnd) {
         await setState("user_groups", { 
           status: 'completed',
-          sync_mode: 'incremental'
+          sync_mode: 'incremental',
+          progress_percentage: 100
         });
         console.log(`[PHASE 0] ✓ User Groups COMPLETED: ${userGroupsFetched} synced`);
       } else {
@@ -638,6 +639,7 @@ Deno.serve(async (req) => {
         await setState("customers", { 
           status: 'completed',
           sync_mode: 'incremental',
+          progress_percentage: 100,
           error_message: membersSkippedPages.length > 0 ? JSON.stringify({
             type: "partial_failure",
             message: `Sync completed with ${membersSkippedPages.length} pages skipped`,
@@ -751,6 +753,7 @@ Deno.serve(async (req) => {
         await setState("bookings", { 
           status: 'completed',
           sync_mode: 'incremental',
+          progress_percentage: 100,
           error_message: bookingsSkippedPages.length > 0 ? JSON.stringify({
             type: "partial_failure",
             message: `Sync completed with ${bookingsSkippedPages.length} pages skipped`,
