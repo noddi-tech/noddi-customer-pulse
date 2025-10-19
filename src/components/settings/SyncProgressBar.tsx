@@ -37,11 +37,15 @@ export function SyncProgressBar({
     return resource;
   };
   
-  // STEP 4: Determine if waiting for previous phase
-  const isWaitingForPrevious = status === 'pending' && (
-    (resource === 'customers' && progress < 100) ||
-    (resource === 'bookings' && progress < 100) ||
-    (resource === 'order_lines' && progress < 100)
+  // STEP 1: Check if actively syncing (rows being fetched this run)
+  const isActivelySyncing = status === 'running' || (status === 'pending' && progress > 0 && progress < 100);
+
+  // STEP 2: Determine if waiting for previous phase
+  // Only show "waiting" if NOT actively syncing AND not completed
+  const isWaitingForPrevious = status === 'pending' && !isActivelySyncing && (
+    (resource === 'customers') ||
+    (resource === 'bookings') ||
+    (resource === 'order_lines')
   );
   
   // Calculate actual progress with multiple fallbacks
@@ -50,9 +54,7 @@ export function SyncProgressBar({
     if (status === 'completed' || status === 'success') return 100;
 
     // For order_lines, use currentPage (max_id_seen) vs total bookings
-    // For other resources, use rows fetched vs estimated total
     if (resource === 'order_lines') {
-      // currentPage is max_id_seen (last booking processed)
       const calculated = total && total > 0 && currentPage
         ? Math.round((currentPage / total) * 100)
         : progress;
@@ -60,8 +62,9 @@ export function SyncProgressBar({
     }
 
     // For API resources (user_groups, customers, bookings)
-    const calculated = total && total > 0 
-      ? Math.round((inDb / total) * 100) 
+    // Use the progress from sync state, NOT the database count
+    const calculated = total && total > 0 && progress > 0
+      ? Math.round((progress / total) * 100) 
       : progress;
 
     // Cap at 100%
@@ -71,7 +74,12 @@ export function SyncProgressBar({
   const actualProgress = getActualProgress();
   const isComplete = actualProgress >= 100 || status === 'completed' || status === 'success';
   const isRunning = status === "running";
-  const isPendingButComplete = status === "pending" && inDb > 0 && total && total > 0 && inDb >= total * 0.9;
+  
+  // Only show "complete - waiting for next sync" if:
+  // 1. Status is 'completed' OR
+  // 2. NOT actively syncing AND database has significant data
+  const isPendingButComplete = (status === 'completed') || 
+    (status === 'pending' && !isActivelySyncing && inDb > 0 && total && total > 0 && inDb >= total * 0.9);
 
   const getBarColor = () => {
     if (isComplete) return "bg-green-500";
