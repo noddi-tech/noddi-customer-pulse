@@ -60,6 +60,8 @@ async function* paged(
   const page_size = Number(params?.page_size ?? 100);
   let pagesProcessed = 0;
   let totalCount: number | undefined;
+  let consecutiveFailures = 0;
+  const MAX_CONSECUTIVE_FAILURES = 10;
   
   for (;;) {
     const queryParams: Record<string, string> = {
@@ -77,8 +79,23 @@ async function* paged(
     if (!res.ok) {
       const body = await res.text();
       if (res.status >= 500) {
-        console.warn(`[sync] page ${page_index} -> ${res.status}; skipping this page`);
+        consecutiveFailures++;
+        console.warn(`[sync] page ${page_index} -> ${res.status}; skipping (consecutive failures: ${consecutiveFailures})`);
+        
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+          console.error(`[sync] Too many consecutive failures (${consecutiveFailures}), stopping sync`);
+          throw new Error(`Too many consecutive 500 errors (${consecutiveFailures} pages failed)`);
+        }
+        
+        // Yield skipped page so caller can update progress
+        yield { rows: [], page_index, maxIdInPage: 0, hasNewRecords: false, totalCount, skipped: true };
         page_index++;
+        pagesProcessed++;
+        
+        if (pagesProcessed >= maxPages) {
+          console.log(`[sync] Reached page limit for this run (${maxPages}), will resume next time`);
+          break;
+        }
         continue;
       }
       if (res.status === 404 && /Invalid page/i.test(body)) {
@@ -87,6 +104,9 @@ async function* paged(
       }
       throw new Error(`Fetch failed ${res.status}: ${body.slice(0, 500)}`);
     }
+    
+    // Reset consecutive failures on success
+    consecutiveFailures = 0;
     
     const data: any = await res.json();
     const rows = Array.isArray(data?.results) ? data.results : Array.isArray(data) ? data : [];
@@ -121,7 +141,7 @@ async function* paged(
       }
     }
     
-    yield { rows, page_index, maxIdInPage, hasNewRecords, totalCount };
+    yield { rows, page_index, maxIdInPage, hasNewRecords, totalCount, skipped: false };
     page_index++;
     pagesProcessed++;
     
@@ -399,7 +419,7 @@ Deno.serve(async (req) => {
     let customerPages = 0;
     let customersMaxIdSeen = customersState.max_id_seen || 0;
     
-    for await (const { rows, page_index, maxIdInPage, totalCount } of paged(
+    for await (const { rows, page_index, maxIdInPage, totalCount, skipped } of paged(
       "/v1/users/", 
       { page_size: 100 },
       customersMaxPages,
@@ -412,27 +432,34 @@ Deno.serve(async (req) => {
         await setState("customers", { estimated_total: totalCount });
       }
       
-      await upsertCustomers(rows);
-      usersFetched += rows.length;
+      if (!skipped) {
+        await upsertCustomers(rows);
+        usersFetched += rows.length;
+        customersMaxIdSeen = Math.max(customersMaxIdSeen, maxIdInPage);
+        
+        const maxUpdated = rows.reduce(
+          (m: string, r: any) => (r.updated_at > m ? r.updated_at : m), 
+          customersState.high_watermark ?? "1970-01-01"
+        );
+        
+        await setState("customers", { 
+          high_watermark: maxUpdated, 
+          max_id_seen: customersMaxIdSeen,
+          rows_fetched: usersFetched,
+        });
+        
+        console.log(`[PHASE 1] customers page ${page_index}: ${rows.length} rows`);
+      } else {
+        console.log(`[PHASE 1] customers page ${page_index}: SKIPPED (500 error)`);
+      }
+      
       customerPages++;
-      customersMaxIdSeen = Math.max(customersMaxIdSeen, maxIdInPage);
-      
-      const maxUpdated = rows.reduce(
-        (m: string, r: any) => (r.updated_at > m ? r.updated_at : m), 
-        customersState.high_watermark ?? "1970-01-01"
-      );
-      
-      // Update page tracking immediately after successful fetch
       customersCurrentPage = page_index + 1;
       
+      // ALWAYS update current_page, even for skipped pages
       await setState("customers", { 
-        high_watermark: maxUpdated, 
-        max_id_seen: customersMaxIdSeen,
-        rows_fetched: usersFetched,
         current_page: customersCurrentPage,
       });
-      
-      console.log(`[PHASE 1] customers page ${page_index}: ${rows.length} rows`);
     }
     
     const customersReachedEnd = customerPages < customersMaxPages;
@@ -460,7 +487,7 @@ Deno.serve(async (req) => {
     let bookingsMaxIdSeen = bookingsState.max_id_seen || 0;
     const allBookingsForOrderLines: any[] = []; // Collect for Phase 3
     
-    for await (const { rows, page_index, maxIdInPage, totalCount } of paged(
+    for await (const { rows, page_index, maxIdInPage, totalCount, skipped } of paged(
       "/v1/bookings/", 
       { page_size: 100 },
       bookingsMaxPages,
@@ -473,28 +500,35 @@ Deno.serve(async (req) => {
         await setState("bookings", { estimated_total: totalCount });
       }
       
-      await upsertBookings(rows); // Just bookings, no order_lines yet
-      allBookingsForOrderLines.push(...rows); // Save for Phase 3
-      bookingsFetched += rows.length;
+      if (!skipped) {
+        await upsertBookings(rows); // Just bookings, no order_lines yet
+        allBookingsForOrderLines.push(...rows); // Save for Phase 3
+        bookingsFetched += rows.length;
+        bookingsMaxIdSeen = Math.max(bookingsMaxIdSeen, maxIdInPage);
+        
+        const maxUpdated = rows.reduce(
+          (m: string, r: any) => (r.updated_at > m ? r.updated_at : m), 
+          bookingsState.high_watermark ?? "1970-01-01"
+        );
+        
+        await setState("bookings", { 
+          high_watermark: maxUpdated,
+          max_id_seen: bookingsMaxIdSeen,
+          rows_fetched: bookingsFetched,
+        });
+        
+        console.log(`[PHASE 2] bookings page ${page_index}: ${rows.length} rows`);
+      } else {
+        console.log(`[PHASE 2] bookings page ${page_index}: SKIPPED (500 error)`);
+      }
+      
       bookingPages++;
-      bookingsMaxIdSeen = Math.max(bookingsMaxIdSeen, maxIdInPage);
-      
-      const maxUpdated = rows.reduce(
-        (m: string, r: any) => (r.updated_at > m ? r.updated_at : m), 
-        bookingsState.high_watermark ?? "1970-01-01"
-      );
-      
-      // Update page tracking immediately after successful fetch
       bookingsCurrentPage = page_index + 1;
       
+      // ALWAYS update current_page, even for skipped pages
       await setState("bookings", { 
-        high_watermark: maxUpdated,
-        max_id_seen: bookingsMaxIdSeen,
-        rows_fetched: bookingsFetched,
         current_page: bookingsCurrentPage,
       });
-      
-      console.log(`[PHASE 2] bookings page ${page_index}: ${rows.length} rows`);
     }
     
     const bookingsReachedEnd = bookingPages < bookingsMaxPages;
