@@ -33,35 +33,36 @@ Deno.serve(async (req) => {
     const deletionCounts: Record<string, number> = {};
 
     // Truncate tables in order (respecting foreign key constraints)
+    // Map each table to its primary/identifying column for deletion
     const tablesToTruncate = [
-      'segments',
-      'features', 
-      'storage_status',
-      'order_lines',
-      'bookings',
-      'customers',
-      'user_groups'
+      { name: 'segments', column: 'user_group_id' },
+      { name: 'features', column: 'user_group_id' }, 
+      { name: 'storage_status', column: 'user_group_id' },
+      { name: 'order_lines', column: 'id' },
+      { name: 'bookings', column: 'id' },
+      { name: 'customers', column: 'id' },
+      { name: 'user_groups', column: 'id' }
     ];
 
     for (const table of tablesToTruncate) {
-      console.log(`Truncating ${table}...`);
+      console.log(`Truncating ${table.name}...`);
       
       // Get count before deletion
-      const { count } = await supabase.from(table).select('*', { count: 'exact', head: true });
-      deletionCounts[table] = count || 0;
+      const { count } = await supabase.from(table.name).select('*', { count: 'exact', head: true });
+      deletionCounts[table.name] = count || 0;
       
-      // Delete all records from the table
+      // Delete all records from the table using a column that exists
       const { error: deleteError } = await supabase
-        .from(table)
+        .from(table.name)
         .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000');
+        .gte(table.column, 0);
       
       if (deleteError) {
-        console.error(`Error deleting from ${table}:`, deleteError);
+        console.error(`Error deleting from ${table.name}:`, deleteError);
         throw deleteError;
       }
       
-      console.log(`✓ Deleted from ${table}: ${deletionCounts[table]} records`);
+      console.log(`✓ Deleted from ${table.name}: ${deletionCounts[table.name]} records`);
     }
 
     // Reset sync_state to initial values
