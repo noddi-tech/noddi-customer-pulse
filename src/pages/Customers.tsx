@@ -18,11 +18,13 @@ export default function Customers() {
   
   const lifecycle = searchParams.get("lifecycle") || undefined;
   const value_tier = searchParams.get("value_tier") || undefined;
+  const customer_type = searchParams.get("customer_type") || undefined;
   const search = searchParams.get("search") || undefined;
 
   const { data: customers, isLoading, dataUpdatedAt } = useCustomers({
     lifecycle,
     value_tier,
+    customer_type,
     search,
   });
 
@@ -107,6 +109,20 @@ export default function Customers() {
                 </Button>
               ))}
             </div>
+            
+            <div className="flex gap-2 items-center">
+              <span className="text-sm font-medium">Type:</span>
+              {["All", "B2C", "B2B"].map((option) => (
+                <Button
+                  key={option}
+                  variant={customer_type === option || (!customer_type && option === "All") ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => handleFilterChange("customer_type", option === "All" ? undefined : option)}
+                >
+                  {option}
+                </Button>
+              ))}
+            </div>
           </div>
 
           <div className="flex gap-2">
@@ -173,13 +189,22 @@ export default function Customers() {
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                   className="border-b p-4 hover:bg-accent cursor-pointer flex items-center justify-between"
-                  onClick={() => navigate(`/customers/${customer.id}`)}
+                  onClick={() => navigate(`/customers/${customer.user_group_id}`)}
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">
-                      {customer.first_name} {customer.last_name}
-                    </p>
-                    <p className="text-sm text-muted-foreground truncate">{customer.email}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium truncate">
+                        {customer.user_group_name}
+                      </p>
+                      <Badge variant={customer.customer_type === 'B2C' ? 'default' : 'secondary'} className="text-xs">
+                        {customer.customer_type}
+                      </Badge>
+                    </div>
+                    {customer.customer_type === 'B2B' && customer.member_count > 0 && (
+                      <p className="text-sm text-muted-foreground truncate">
+                        {customer.member_count} {customer.member_count === 1 ? 'member' : 'members'}
+                      </p>
+                    )}
                   </div>
                   
                   <div className="flex items-center gap-6 ml-4">

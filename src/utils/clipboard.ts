@@ -2,15 +2,7 @@ import { Customer } from "@/hooks/segmentation";
 import { toast } from "sonner";
 
 export async function copyEmailsToClipboard(customers: Customer[]) {
-  const emails = customers
-    .map((c) => c.email)
-    .filter((e) => e)
-    .join(", ");
-
-  try {
-    await navigator.clipboard.writeText(emails);
-    toast.success(`${customers.length} emails copied to clipboard`);
-  } catch (error) {
-    toast.error("Failed to copy emails to clipboard");
-  }
+  // For B2C customers, we don't have direct email access
+  // This function is deprecated for user_group-based customer tracking
+  toast.info("Email export not available for user groups");
 }

@@ -128,6 +128,7 @@ export type Database = {
           service_counts: Json | null
           service_tags_all: Json | null
           storage_active: boolean | null
+          user_group_id: number | null
           user_id: number
         }
         Insert: {
@@ -144,6 +145,7 @@ export type Database = {
           service_counts?: Json | null
           service_tags_all?: Json | null
           storage_active?: boolean | null
+          user_group_id?: number | null
           user_id: number
         }
         Update: {
@@ -160,6 +162,7 @@ export type Database = {
           service_counts?: Json | null
           service_tags_all?: Json | null
           storage_active?: boolean | null
+          user_group_id?: number | null
           user_id?: number
         }
         Relationships: [
@@ -242,6 +245,7 @@ export type Database = {
           previous_lifecycle: string | null
           tags: Json | null
           updated_at: string | null
+          user_group_id: number | null
           user_id: number
           value_tier: string | null
         }
@@ -250,6 +254,7 @@ export type Database = {
           previous_lifecycle?: string | null
           tags?: Json | null
           updated_at?: string | null
+          user_group_id?: number | null
           user_id: number
           value_tier?: string | null
         }
@@ -258,6 +263,7 @@ export type Database = {
           previous_lifecycle?: string | null
           tags?: Json | null
           updated_at?: string | null
+          user_group_id?: number | null
           user_id?: number
           value_tier?: string | null
         }
@@ -365,6 +371,30 @@ export type Database = {
           status?: string | null
           sync_mode?: string | null
           total_records?: number | null
+        }
+        Relationships: []
+      }
+      user_groups: {
+        Row: {
+          created_at: string | null
+          id: number
+          name: string | null
+          org_id: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id: number
+          name?: string | null
+          org_id?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: number
+          name?: string | null
+          org_id?: number | null
+          updated_at?: string | null
         }
         Relationships: []
       }

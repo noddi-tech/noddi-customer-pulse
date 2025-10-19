@@ -15,11 +15,11 @@ export default function CustomerDetails() {
     return <div className="text-center py-8">Loading customer details...</div>;
   }
 
-  if (!data?.customer) {
+  if (!data?.userGroup) {
     return <div className="text-center py-8">Customer not found</div>;
   }
 
-  const { customer, bookings, features, segments } = data;
+  const { userGroup, bookings, features, segments, members, customer_type } = data;
 
   return (
     <div className="space-y-6">
@@ -33,12 +33,18 @@ export default function CustomerDetails() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-2xl">
-                {customer.first_name} {customer.last_name}
-              </CardTitle>
-              <p className="text-muted-foreground">{customer.email}</p>
-              {customer.phone && (
-                <p className="text-sm text-muted-foreground">{customer.phone}</p>
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-2xl">
+                  {userGroup.name}
+                </CardTitle>
+                <Badge variant={customer_type === 'B2C' ? 'default' : 'secondary'}>
+                  {customer_type}
+                </Badge>
+              </div>
+              {customer_type === 'B2B' && members.length > 0 && (
+                <p className="text-muted-foreground mt-2">
+                  {members.length} {members.length === 1 ? 'member' : 'members'}
+                </p>
               )}
             </div>
             <div className="flex gap-2">
@@ -93,6 +99,30 @@ export default function CustomerDetails() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Members (B2B only) */}
+      {customer_type === 'B2B' && members && members.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Members</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {members.map((member: any) => (
+                <div key={member.id} className="flex items-center justify-between border-b pb-2 last:border-0">
+                  <div>
+                    <p className="font-medium">{member.first_name} {member.last_name}</p>
+                    <p className="text-sm text-muted-foreground">{member.email}</p>
+                  </div>
+                  {member.phone && (
+                    <p className="text-sm text-muted-foreground">{member.phone}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Service Tags */}
       {features?.service_tags_all && Array.isArray(features.service_tags_all) && features.service_tags_all.length > 0 && (

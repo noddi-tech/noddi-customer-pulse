@@ -362,34 +362,144 @@ serve(async (req) => {
       await sb.from("segments").upsert(segs, { onConflict: "user_id" });
     }
 
-    // Page through every customer id deterministically
-    const BATCH = 1000;
-    let lastId = 0;
+    // CRITICAL CHANGE: Process by user_group_id instead of user_id
+    // Get all unique user_group_ids from bookings table
+    console.log("[compute] Fetching unique user_group_ids from bookings...");
+    
+    const { data: userGroupIds } = await sb
+      .from("bookings")
+      .select("user_group_id")
+      .not("user_group_id", "is", null);
+    
+    const uniqueUserGroupIds = [...new Set((userGroupIds || []).map(b => b.user_group_id))];
+    console.log(`[compute] Found ${uniqueUserGroupIds.length} unique user_groups (customers)`);
+    
+    // Process in batches
+    const BATCH = 100;
     let totalProcessed = 0;
     
-    for (;;) {
-      const { data: batch, error } = await sb
-        .from("customers")
-        .select("id, user_group_id")
-        .gt("id", lastId)
-        .order("id")
-        .limit(BATCH);
+    for (let i = 0; i < uniqueUserGroupIds.length; i += BATCH) {
+      const batch = uniqueUserGroupIds.slice(i, i + BATCH);
+      
+      // For each user_group, fetch ALL bookings (all members combined)
+      for (const userGroupId of batch) {
+        const cutoffDate = new Date(now.getTime() - 1000 * 60 * 60 * 24 * 365 * 2).toISOString();
         
-      if (error) throw error;
-      if (!batch || batch.length === 0) break;
+        const { data: bk } = await sb
+          .from("bookings")
+          .select("id,user_id,user_group_id,started_at,completed_at,date,status_label,is_fully_paid,is_partially_unable_to_complete,is_fully_unable_to_complete")
+          .eq("user_group_id", userGroupId)
+          .or(`started_at.gte.${cutoffDate},date.gte.${cutoffDate}`);
+        
+        if (!bk || bk.length === 0) continue;
+        
+        const { data: ol } = await sb
+          .from("order_lines")
+          .select("booking_id,description,amount_gross,amount_vat,currency,is_discount,created_at")
+          .in("booking_id", bk.map((b) => b.id));
+        
+        const linesByBooking = new Map<number, any[]>();
+        (ol || []).forEach((l) => {
+          const a = linesByBooking.get(l.booking_id) ?? [];
+          a.push(l);
+          linesByBooking.set(l.booking_id, a);
+        });
+        
+        // Calculate features for this user_group (aggregated across all members)
+        const bookings = bk;
+        
+        const lastBookingAt = bookings.reduce((m: Date | null, b) => {
+          const t = b.started_at 
+            ? new Date(b.started_at) 
+            : b.date 
+              ? new Date(b.date) 
+              : b.completed_at 
+                ? new Date(b.completed_at) 
+                : null;
+          return !t ? m : !m || t > m ? t : m;
+        }, null);
+        
+        const recencyDays = lastBookingAt ? Math.floor((now.getTime() - lastBookingAt.getTime()) / 86400000) : null;
+        
+        const revenue24 = bookings.reduce((sum, b) => {
+          const lines = linesByBooking.get(b.id) ?? [];
+          return sum + lines.reduce((s, l) => s + Number(l.amount_gross || 0), 0);
+        }, 0);
+        
+        const discountShare = (() => {
+          const all = bookings.flatMap((b) => linesByBooking.get(b.id) ?? []);
+          const disc = all.filter((l) => !!l.is_discount).reduce((s, l) => s + Number(l.amount_gross || 0), 0);
+          const gross = all.reduce((s, l) => s + Number(l.amount_gross || 0), 0);
+          return gross > 0 ? disc / gross : 0;
+        })();
+        
+        const margin = revenue24 * Number(th.default_margin_pct ?? 25) / 100;
+        
+        // Extract service tags
+        const allTags = [
+          ...new Set(bookings.flatMap((b) => {
+            const lines = linesByBooking.get(b.id) ?? [];
+            return lines.flatMap((l) => extractTags(l.description || ""));
+          }))
+        ];
+        
+        // Calculate lifecycle
+        const daysSinceLastBooking = recencyDays ?? Infinity;
+        const monthsSinceLastBooking = daysSinceLastBooking / 30.4375;
+        
+        const st = storageMap.get(userGroupId) ?? { active: false, ended_at: null };
+        const storageActive = !!st.active;
+        
+        let lifecycle = "Churned";
+        const firstBookingAt = bookings.reduce((m: Date | null, b) => {
+          const t = b.started_at ? new Date(b.started_at) : b.date ? new Date(b.date) : b.completed_at ? new Date(b.completed_at) : null;
+          return !t ? m : !m || t < m ? t : m;
+        }, null);
+        
+        const daysSinceFirstBooking = firstBookingAt ? (now.getTime() - firstBookingAt.getTime()) / 86400000 : Infinity;
+        
+        if (daysSinceFirstBooking <= (th.new_days ?? 90)) {
+          lifecycle = "New";
+        } else if (storageActive) {
+          lifecycle = "Active";
+        } else if (monthsSinceLastBooking <= (th.active_months ?? 7)) {
+          lifecycle = "Active";
+        } else if (monthsSinceLastBooking > (th.at_risk_from_months ?? 7) && monthsSinceLastBooking <= (th.at_risk_to_months ?? 9)) {
+          lifecycle = "At-risk";
+        }
+        
+        // Upsert features for this user_group
+        await sb.from("features").upsert({
+          user_group_id: userGroupId,
+          computed_at: new Date().toISOString(),
+          last_booking_at: lastBookingAt?.toISOString() ?? null,
+          storage_active: storageActive,
+          recency_days: recencyDays ?? null,
+          frequency_24m: bookings.length,
+          revenue_24m: revenue24,
+          margin_24m: margin,
+          discount_share_24m: discountShare,
+          fully_paid_rate: bookings.length ? bookings.filter((b) => !!b.is_fully_paid).length / bookings.length : 0,
+          service_tags_all: allTags,
+          service_counts: null
+        }, { onConflict: "user_group_id" });
+        
+        // Upsert segments for this user_group
+        await sb.from("segments").upsert({
+          user_group_id: userGroupId,
+          lifecycle,
+          value_tier: null,
+          tags: allTags,
+          updated_at: new Date().toISOString()
+        }, { onConflict: "user_group_id" });
+        
+        totalProcessed++;
+      }
       
-      // Create user_group_id map for this batch
-      const userGroupMap = new Map<number, number>();
-      batch.forEach((u) => userGroupMap.set(u.id, u.user_group_id));
-      
-      await processCustomerBatch(batch.map(r => r.id), userGroupMap);
-      
-      totalProcessed += batch.length;
-      lastId = batch[batch.length - 1].id;
-      console.log(`Processed ${totalProcessed} customers (last_id: ${lastId})`);
+      console.log(`Processed ${totalProcessed}/${uniqueUserGroupIds.length} user_groups (customers)`);
     }
     
-    console.log(`Total customers processed: ${totalProcessed}`)
+    console.log(`Total user_groups (customers) processed: ${totalProcessed}`)
 
     // RFM + STICKINESS VALUE TIERS
     console.log("[value_tier] Computing RFM + Stickiness scores...");
@@ -397,7 +507,7 @@ serve(async (req) => {
     // Fetch all features for RFM calculation
     const { data: allFeatures } = await sb
       .from("features")
-      .select("user_id, recency_days, frequency_24m, margin_24m, service_counts");
+      .select("user_group_id, recency_days, frequency_24m, margin_24m, service_counts");
 
     if (!allFeatures || allFeatures.length === 0) {
       console.log("[value_tier] No features found, skipping value tier calculation");
@@ -444,7 +554,7 @@ serve(async (req) => {
       const finalScore = rfmScore + stickinessBoost;
       
       return {
-        user_id: f.user_id,
+        user_group_id: f.user_group_id,
         score: finalScore,
         rfm_components: { recencyScore, frequencyScore, monetaryScore, rfmScore, stickinessBoost }
       };
@@ -457,7 +567,7 @@ serve(async (req) => {
     const midThreshold = Math.floor(scoredCustomers.length * 0.5);   // Next 30% (20-50%)
 
     const tierUpdates = scoredCustomers.map((sc, index) => ({
-      user_id: sc.user_id,
+      user_group_id: sc.user_group_id,
       value_tier: index < highThreshold ? "High" 
                 : index < midThreshold ? "Mid" 
                 : "Low",
@@ -467,7 +577,7 @@ serve(async (req) => {
     // Batch upsert value tiers
     for (let i = 0; i < tierUpdates.length; i += 1000) {
       const batch = tierUpdates.slice(i, i + 1000);
-      const { error } = await sb.from("segments").upsert(batch, { onConflict: "user_id" });
+      const { error } = await sb.from("segments").upsert(batch, { onConflict: "user_group_id" });
       if (error) {
         console.error(`[value_tier] Error upserting batch ${i}-${i + 1000}:`, error);
       }

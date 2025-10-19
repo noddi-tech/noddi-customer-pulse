@@ -13,10 +13,11 @@ export type SegmentCounts = {
 };
 
 export type Customer = {
-  id: number;
-  first_name: string | null;
-  last_name: string | null;
-  email: string | null;
+  user_group_id: number;
+  user_group_name: string;
+  org_id: number | null;
+  customer_type: 'B2C' | 'B2B';
+  member_count?: number;
   segments: {
     lifecycle: string | null;
     value_tier: string | null;
@@ -61,61 +62,79 @@ export function useSegmentCounts() {
 export function useCustomers(params?: {
   lifecycle?: string;
   value_tier?: string;
-  tag?: string;
+  customer_type?: string;
   search?: string;
 }) {
   return useQuery({
     queryKey: ["customers", params],
     queryFn: async () => {
-      // PHASE 2: Fetch ALL customers with pagination
-      let allCustomers: Customer[] = [];
-      let from = 0;
-      const pageSize = 1000;
-      
-      while (true) {
-        let query = supabase
-          .from("customers")
-          .select(
-            `id,
-            first_name,
-            last_name,
-            email,
-            segments!inner(lifecycle,value_tier,tags),
-            features!inner(last_booking_at,revenue_24m,margin_24m,frequency_24m,service_tags_all,storage_active,discount_share_24m,recency_days)`
+      let query = supabase
+        .from("segments")
+        .select(`
+          user_group_id,
+          lifecycle,
+          value_tier,
+          user_groups!inner(id, name, org_id),
+          features!inner(
+            last_booking_at,
+            revenue_24m,
+            margin_24m,
+            frequency_24m,
+            service_tags_all,
+            storage_active,
+            discount_share_24m,
+            recency_days
           )
-          .range(from, from + pageSize - 1)
-          .order("id");
+        `)
+        .order("user_group_id");
 
-        if (params?.lifecycle) {
-          query = query.eq("segments.lifecycle", params.lifecycle);
-        }
-
-        if (params?.value_tier) {
-          query = query.eq("segments.value_tier", params.value_tier);
-        }
-
-        if (params?.tag) {
-          query = query.contains("features.service_tags_all", [params.tag]);
-        }
-
-        if (params?.search) {
-          query = query.or(
-            `email.ilike.%${params.search}%,first_name.ilike.%${params.search}%,last_name.ilike.%${params.search}%`
-          );
-        }
-
-        const { data, error } = await query;
-
-        if (error) throw error;
-        if (!data || data.length === 0) break;
-        
-        allCustomers = allCustomers.concat(data as Customer[]);
-        
-        if (data.length < pageSize) break; // Last page
-        from += pageSize;
+      if (params?.lifecycle) {
+        query = query.eq("lifecycle", params.lifecycle);
       }
 
-      return allCustomers;
+      if (params?.value_tier) {
+        query = query.eq("value_tier", params.value_tier);
+      }
+
+      if (params?.customer_type === 'B2C') {
+        query = query.is("user_groups.org_id", null);
+      } else if (params?.customer_type === 'B2B') {
+        query = query.not("user_groups.org_id", "is", null);
+      }
+
+      if (params?.search) {
+        query = query.ilike("user_groups.name", `%${params.search}%`);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      // Enrich with member count
+      const enriched = await Promise.all(
+        (data || []).map(async (record: any) => {
+          const { count } = await supabase
+            .from("bookings")
+            .select("user_id", { count: 'exact', head: true })
+            .eq("user_group_id", record.user_group_id);
+
+          return {
+            user_group_id: record.user_group_id,
+            user_group_name: record.user_groups.name || `Customer ${record.user_group_id}`,
+            org_id: record.user_groups.org_id,
+            customer_type: record.user_groups.org_id ? 'B2B' as const : 'B2C' as const,
+            member_count: count || 0,
+            segments: {
+              lifecycle: record.lifecycle,
+              value_tier: record.value_tier,
+              tags: null,
+            },
+            features: record.features,
+          };
+        })
+      );
+
+      return enriched;
     },
     staleTime: 5 * 60 * 1000,
     refetchInterval: 30 * 60 * 1000,
@@ -123,21 +142,23 @@ export function useCustomers(params?: {
   });
 }
 
-export function useCustomerDetails(userId: number) {
+export function useCustomerDetails(userGroupId: number) {
   return useQuery({
-    queryKey: ["customer", userId],
+    queryKey: ["customer", userGroupId],
     queryFn: async () => {
-      const [customerData, bookingsData, featuresData, segmentsData] =
+      const [userGroupData, featuresData, segmentsData] =
         await Promise.all([
-          supabase.from("customers").select("*").eq("id", userId).maybeSingle(),
-          supabase
-            .from("bookings")
-            .select("*")
-            .eq("user_id", userId)
-            .order("started_at", { ascending: false }),
-          supabase.from("features").select("*").eq("user_id", userId).maybeSingle(),
-          supabase.from("segments").select("*").eq("user_id", userId).maybeSingle(),
+          supabase.from("user_groups").select("*").eq("id", userGroupId).maybeSingle(),
+          supabase.from("features").select("*").eq("user_group_id", userGroupId).maybeSingle(),
+          supabase.from("segments").select("*").eq("user_group_id", userGroupId).maybeSingle(),
         ]);
+
+      // Fetch ALL bookings for this user_group (all members)
+      const bookingsData = await supabase
+        .from("bookings")
+        .select("*")
+        .eq("user_group_id", userGroupId)
+        .order("started_at", { ascending: false });
 
       // Fetch order lines for each booking
       const bookingIds = bookingsData.data?.map((b) => b.id) || [];
@@ -162,14 +183,22 @@ export function useCustomerDetails(userId: number) {
           order_lines: orderLinesByBooking[booking.id] || [],
         })) || [];
 
+      // Fetch unique members of this user_group
+      const { data: membersData } = await supabase
+        .from("customers")
+        .select("id, first_name, last_name, email, phone")
+        .in("id", [...new Set((bookingsData.data || []).map(b => b.user_id).filter(Boolean))]);
+
       return {
-        customer: customerData.data,
+        userGroup: userGroupData.data,
+        customer_type: userGroupData.data?.org_id ? 'B2B' as const : 'B2C' as const,
         bookings: bookingsWithLines,
         features: featuresData.data,
         segments: segmentsData.data,
+        members: membersData || [],
       };
     },
-    enabled: !!userId,
+    enabled: !!userGroupId,
   });
 }
 

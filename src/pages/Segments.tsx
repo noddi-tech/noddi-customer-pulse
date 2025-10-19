@@ -96,14 +96,23 @@ export default function Segments() {
               <div className="space-y-2">
                 {customers.map((customer) => (
                   <div
-                    key={customer.id}
+                    key={customer.user_group_id}
                     className="flex items-center justify-between border rounded-lg p-3 hover:bg-accent"
                   >
                     <div>
-                      <p className="font-medium">
-                        {customer.first_name} {customer.last_name}
-                      </p>
-                      <p className="text-sm text-muted-foreground">{customer.email}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium">
+                          {customer.user_group_name}
+                        </p>
+                        <Badge variant={customer.customer_type === 'B2C' ? 'default' : 'secondary'} className="text-xs">
+                          {customer.customer_type}
+                        </Badge>
+                      </div>
+                      {customer.customer_type === 'B2B' && customer.member_count > 0 && (
+                        <p className="text-sm text-muted-foreground">
+                          {customer.member_count} {customer.member_count === 1 ? 'member' : 'members'}
+                        </p>
+                      )}
                     </div>
                     <div className="flex gap-2">
                       <Badge variant="outline">{customer.segments?.lifecycle}</Badge>

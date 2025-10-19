@@ -3,9 +3,10 @@ import { Customer } from "@/hooks/segmentation";
 
 export function exportCustomersToCSV(customers: Customer[], filename?: string) {
   const csvData = customers.map((customer) => ({
-    Name: `${customer.first_name || ""} ${customer.last_name || ""}`.trim(),
-    Email: customer.email || "",
-    Lifecycle: customer.segments?.lifecycle || "",
+    "Customer Name": customer.user_group_name,
+    "Type": customer.customer_type,
+    "Members": customer.member_count || 1,
+    "Lifecycle": customer.segments?.lifecycle || "",
     "Value Tier": customer.segments?.value_tier || "",
     "Orders (24m)": customer.features?.frequency_24m || 0,
     "Revenue per Order (NOK)": customer.features?.revenue_24m && customer.features?.frequency_24m

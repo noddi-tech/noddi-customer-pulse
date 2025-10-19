@@ -515,6 +515,61 @@ Deno.serve(async (req) => {
       });
     }
     
+    // ===== PHASE 2.5: SYNC USER GROUPS =====
+    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 2.5] === Syncing User Groups ===`);
+    
+    const userGroupsState = await getState('user_groups');
+    const userGroupsSyncMode = userGroupsState.sync_mode || 'initial';
+    const userGroupsStartPage = userGroupsState.current_page || 0;
+    const userGroupsMaxId = userGroupsState.max_id_seen || 0;
+    const userGroupsHighWatermark = userGroupsState.high_watermark || null;
+    const userGroupsMaxPages = 999;
+    
+    let userGroupsFetched = 0;
+    let userGroupsPages = 0;
+    
+    const userGroupsGenerator = paged(
+      "/v1/user-groups/",
+      { page_size: 100 },
+      userGroupsMaxPages,
+      userGroupsMaxId,
+      userGroupsSyncMode,
+      userGroupsStartPage,
+      userGroupsHighWatermark
+    );
+    
+    for await (const { rows, page_index, maxIdInPage, totalCount } of userGroupsGenerator) {
+      if (!rows.length) break;
+      
+      const userGroupsData = rows.map((ug: any) => ({
+        id: ug.id,
+        name: ug.name || `User Group ${ug.id}`,
+        org_id: ug.org?.id || null,
+        created_at: ug.created_at,
+        updated_at: ug.updated_at
+      }));
+      
+      const { error: userGroupsErr } = await sb.from("user_groups").upsert(userGroupsData, { onConflict: "id" });
+      if (userGroupsErr) console.error("Error upserting user_groups:", userGroupsErr);
+      
+      userGroupsFetched += userGroupsData.length;
+      userGroupsPages = page_index;
+      
+      await setState("user_groups", {
+        current_page: page_index,
+        rows_fetched: userGroupsFetched,
+        max_id_seen: maxIdInPage,
+        total_records: totalCount || 0
+      });
+    }
+    
+    const userGroupsReachedEnd = userGroupsPages < userGroupsMaxPages;
+    if (userGroupsReachedEnd && userGroupsSyncMode === 'initial') {
+      await setState("user_groups", { sync_mode: 'incremental' });
+    }
+    
+    console.log(`[PHASE 2.5] ✓ User Groups complete: ${userGroupsFetched} synced`);
+
     // ===== PHASE 3: SYNC ORDER LINES (Database-driven, fully resumable) =====
     console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 3] === Syncing Order Lines ===`);
     
