@@ -21,7 +21,7 @@ serve(async (req) => {
       });
     }
 
-    const endpoint = `${base.replace(/\/+$/, "")}/v1/user-groups/?page_size=5`;
+    const endpoint = `${base.replace(/\/+$/, "")}/v1/user-groups/?page_index=0&page_size=5`;
 
     console.log(`[test-user-groups] Fetching: ${endpoint}`);
 
@@ -53,19 +53,23 @@ serve(async (req) => {
     console.log(`[test-user-groups] Total count: ${data.count}`);
     console.log(`[test-user-groups] Sample keys:`, Object.keys(sampleUserGroup || {}).join(", "));
 
-    // Check for organization-related fields
+    // Check for ALL organization-related fields with multiple naming patterns
     const orgFields = {
       hasOrg: !!sampleUserGroup?.org,
       hasOrgId: !!sampleUserGroup?.org_id,
       hasOrganization: !!sampleUserGroup?.organization,
       hasOrganizationId: !!sampleUserGroup?.organization_id,
+      hasServiceOrganization: !!sampleUserGroup?.service_organization,
+      hasServiceOrganizationId: !!sampleUserGroup?.service_organization_id,
       orgValue: sampleUserGroup?.org || null,
       orgIdValue: sampleUserGroup?.org_id || null,
       organizationValue: sampleUserGroup?.organization || null,
       organizationIdValue: sampleUserGroup?.organization_id || null,
+      serviceOrgValue: sampleUserGroup?.service_organization || null,
     };
 
     console.log(`[test-user-groups] Organization fields:`, JSON.stringify(orgFields, null, 2));
+    console.log(`[test-user-groups] Full first user_group:`, JSON.stringify(sampleUserGroup, null, 2));
 
     return new Response(JSON.stringify({
       ok: true,
