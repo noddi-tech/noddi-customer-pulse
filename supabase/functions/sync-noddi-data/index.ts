@@ -387,22 +387,11 @@ Deno.serve(async (req) => {
     console.log(`[STATUS] bookings: ${bookingsState.sync_mode || 'initial'} (${bookingsState.status || 'pending'})`);
     console.log(`[STATUS] order_lines: ${orderLinesState.status || 'pending'}`);
 
-    // Clear old error states when starting a full sync
-    const shouldDoFullSync = 
-      (userGroupsState.sync_mode === 'incremental' && userGroupsState.status === 'completed') ||
-      (membersState.sync_mode === 'incremental' && membersState.status === 'completed') ||
-      (bookingsState.sync_mode === 'incremental' && bookingsState.status === 'completed');
-    
-    if (shouldDoFullSync) {
-      console.log('[RESET] Full sync detected, clearing old error states');
-      await sb.from('sync_state').update({ 
-        status: 'pending',
-        error_message: null,
-        rows_fetched: 0,
-        progress_percentage: 0
-      }).in('resource', ['customers', 'bookings', 'order_lines']);
-      console.log('[RESET] ✓ Error states cleared');
-    }
+    // Clear ALL error messages at the start of every sync run
+    // This ensures only current run errors are displayed, not stale ones from previous failed runs
+    console.log('[CLEANUP] Clearing all stale error messages from previous runs');
+    await sb.from('sync_state').update({ error_message: null });
+    console.log('[CLEANUP] ✓ All error messages cleared');
 
     // ===== PHASE 0: SYNC USER GROUPS (PRIMARY CUSTOMERS) - MUST COMPLETE FIRST =====
     console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 0/4] === Syncing User Groups (Primary Customers) ===`);
