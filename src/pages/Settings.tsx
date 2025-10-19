@@ -384,10 +384,14 @@ export default function Settings() {
         <TabsContent value="sync" className="space-y-4">
           {/* Calculate metrics */}
           {(() => {
+            const userGroupsStatus = syncStatus?.find((s) => s.resource === "user_groups");
             const customersStatus = syncStatus?.find((s) => s.resource === "customers");
             const bookingsStatus = syncStatus?.find((s) => s.resource === "bookings");
             const orderLinesStatus = syncStatus?.find((s) => s.resource === "order_lines");
             
+            const userGroupsProgress = userGroupsStatus?.estimated_total && dbCounts?.user_groups_total
+              ? Math.min(100, (dbCounts.user_groups_total / userGroupsStatus.estimated_total) * 100)
+              : 0;
             const customersProgress = customersStatus?.estimated_total && dbCounts?.customers_total
               ? Math.min(100, (dbCounts.customers_total / customersStatus.estimated_total) * 100)
               : 0;
@@ -609,11 +613,14 @@ export default function Settings() {
           )}
                 
                 <SyncStatusCard
+                  userGroupsProgress={userGroupsProgress}
                   customersProgress={customersProgress}
                   bookingsProgress={bookingsProgress}
                   orderLinesProgress={orderLinesProgress}
+                  userGroupsTotal={userGroupsStatus?.estimated_total}
                   customersTotal={customersStatus?.estimated_total}
                   bookingsTotal={bookingsStatus?.estimated_total}
+                  userGroupsInDb={dbCounts?.user_groups_total || 0}
                   customersInDb={dbCounts?.customers_total || 0}
                   bookingsInDb={dbCounts?.bookings || 0}
                   orderLinesInDb={dbCounts?.order_lines || 0}
@@ -622,6 +629,7 @@ export default function Settings() {
                   hasError={hasError}
                   isComputingSegments={isComputingSegments}
                   lastComputeTime={lastComputeTime}
+                  userGroupsStatus={userGroupsStatus}
                   customersStatus={customersStatus}
                   bookingsStatus={bookingsStatus}
                   orderLinesStatus={orderLinesStatus}
@@ -640,6 +648,7 @@ export default function Settings() {
 
                 <div className="grid md:grid-cols-2 gap-4">
                   <SyncWorkflowGuide
+                    userGroupsComplete={userGroupsProgress >= 100}
                     customersComplete={customersProgress >= 100}
                     bookingsComplete={bookingsProgress >= 100}
                     orderLinesComplete={orderLinesProgress >= 90}
@@ -658,7 +667,20 @@ export default function Settings() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="space-y-4">
-                      <div ref={customersProgress < 100 && isRunning ? setActivePhaseRef : null}>
+                      <div ref={userGroupsProgress < 100 && isRunning ? setActivePhaseRef : null}>
+                        <SyncProgressBar
+                          resource="user_groups"
+                          progress={userGroupsProgress}
+                          total={userGroupsStatus?.estimated_total || dbCounts?.user_groups_total}
+                          inDb={dbCounts?.user_groups_total || 0}
+                          status={userGroupsStatus?.status || "pending"}
+                          syncMode={userGroupsStatus?.sync_mode}
+                          currentPage={userGroupsStatus?.current_page}
+                          lastRunAt={userGroupsStatus?.last_run_at ? new Date(userGroupsStatus.last_run_at) : null}
+                        />
+                      </div>
+                      
+                      <div ref={customersProgress < 100 && userGroupsProgress >= 100 && isRunning ? setActivePhaseRef : null}>
                         <SyncProgressBar
                           resource="customers"
                           progress={customersProgress}

@@ -399,7 +399,7 @@ Deno.serve(async (req) => {
     let customersCurrentPage = customersState.current_page || 0;
     let bookingsCurrentPage = bookingsState.current_page || 0;
     
-    console.log(`[PHASE 1] Customers: ${customersSyncMode} mode, page ${customersCurrentPage}`);
+    console.log(`[PHASE 1] Customers (Contacts): ${customersSyncMode} mode, page ${customersCurrentPage}`);
     console.log(`[PHASE 2] Bookings: ${bookingsSyncMode} mode, page ${bookingsCurrentPage}`);
     
     await setState("customers", { status: "running", error_message: null });
@@ -415,8 +415,8 @@ Deno.serve(async (req) => {
       });
     }
     
-    // ===== PHASE 1: SYNC CUSTOMERS COMPLETELY =====
-    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 1] === Syncing Customers ===`);
+    // ===== PHASE 1: SYNC CUSTOMERS (INDIVIDUAL CONTACTS) =====
+    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 1] === Syncing Customers (Individual Contacts) ===`);
     let usersFetched = 0;
     let customerPages = 0;
     let customersMaxIdSeen = customersState.max_id_seen || 0;
@@ -579,8 +579,8 @@ Deno.serve(async (req) => {
       });
     }
     
-    // ===== PHASE 2.5: SYNC USER GROUPS =====
-    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 2.5] === Syncing User Groups ===`);
+    // ===== PHASE 0: SYNC USER GROUPS (PRIMARY CUSTOMERS - first, before customers) =====
+    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 0] === Syncing User Groups (Primary Customers) ===`);
     
     const userGroupsState = await getState('user_groups');
     const userGroupsSyncMode = userGroupsState.sync_mode || 'initial';
@@ -838,9 +838,25 @@ Deno.serve(async (req) => {
     }
 
     console.log("=== SYNC COMPLETE ===\n");
+    
+    const healthReport = {
+      ...health,
+      user_groups_synced: userGroupsFetched,
+      customers_synced: usersFetched,
+      bookings_synced: bookingsFetched,
+      order_lines_extracted: totalOrderLinesExtracted
+    };
 
     return new Response(
-      JSON.stringify({ ok: true, health, usersFetched, bookingsFetched }), 
+      JSON.stringify({ 
+        ok: true, 
+        userGroupsFetched,
+        usersFetched, 
+        bookingsFetched, 
+        orderLinesExtracted: totalOrderLinesExtracted,
+        health: healthReport,
+        deployment: DEPLOYMENT_VERSION 
+      }), 
       { headers: { ...corsHeaders, "content-type": "application/json" } }
     );
     

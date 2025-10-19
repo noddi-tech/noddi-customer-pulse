@@ -28,6 +28,15 @@ export function SyncProgressBar({
   currentPage,
   lastRunAt,
 }: SyncProgressBarProps) {
+  // Get display name for resources
+  const getDisplayName = () => {
+    if (resource === 'user_groups') return 'User Groups (Customers)';
+    if (resource === 'customers') return 'Contacts (Individual Members)';
+    if (resource === 'bookings') return 'Bookings';
+    if (resource === 'order_lines') return 'Order Lines';
+    return resource;
+  };
+  
   // Calculate actual progress with multiple fallbacks
   const getActualProgress = () => {
     // If status is 'completed' or 'success', show 100%
@@ -43,7 +52,7 @@ export function SyncProgressBar({
       return Math.min(100, calculated);
     }
 
-    // For API resources (customers, bookings)
+    // For API resources (user_groups, customers, bookings)
     const calculated = total && total > 0 
       ? Math.round((inDb / total) * 100) 
       : progress;
@@ -67,7 +76,7 @@ export function SyncProgressBar({
     <div className="space-y-2">
       <div className="flex items-center justify-between text-sm">
         <div className="flex items-center gap-2">
-          <span className="font-medium capitalize">{resource}</span>
+          <span className="font-medium">{getDisplayName()}</span>
           {syncMode === "full" && (
             <Badge variant="destructive" className="text-xs">FULL SYNC</Badge>
           )}

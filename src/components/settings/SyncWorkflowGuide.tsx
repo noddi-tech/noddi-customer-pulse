@@ -3,6 +3,7 @@ import { CheckCircle, RefreshCw, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SyncWorkflowGuideProps {
+  userGroupsComplete: boolean;
   customersComplete: boolean;
   bookingsComplete: boolean;
   orderLinesComplete: boolean;
@@ -11,20 +12,22 @@ interface SyncWorkflowGuideProps {
 }
 
 export function SyncWorkflowGuide({
+  userGroupsComplete,
   customersComplete,
   bookingsComplete,
   orderLinesComplete,
   segmentsComputed,
   isRunning,
 }: SyncWorkflowGuideProps) {
-  const allDataSynced = customersComplete && bookingsComplete && orderLinesComplete;
+  const allDataSynced = userGroupsComplete && customersComplete && bookingsComplete && orderLinesComplete;
 
   const steps = [
     {
       number: 1,
       title: "Sync Data",
       substeps: [
-        { label: "Customers synced", complete: customersComplete },
+        { label: "User Groups (Primary Customers) synced", complete: userGroupsComplete },
+        { label: "Contacts (Individual Members) synced", complete: customersComplete },
         { label: "Bookings synced", complete: bookingsComplete },
         { label: "Order lines synced", complete: orderLinesComplete },
       ],

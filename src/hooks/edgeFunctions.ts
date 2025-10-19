@@ -13,7 +13,7 @@ export function useSyncNow() {
     },
     onSuccess: (data) => {
       toast.success(
-        `Sync complete! Fetched ${data.usersFetched} customers and ${data.bookingsFetched} bookings`
+        `Sync complete! Fetched ${data.userGroupsFetched || 0} user groups, ${data.usersFetched} contacts, and ${data.bookingsFetched} bookings`
       );
       queryClient.invalidateQueries({ queryKey: ["sync-status"] });
       queryClient.invalidateQueries({ queryKey: ["customers"] });
