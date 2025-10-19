@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.test-noddi-connection]
 verify_jwt = false
+
+[functions.test-organizations]
+verify_jwt = false
