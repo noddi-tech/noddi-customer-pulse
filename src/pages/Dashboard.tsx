@@ -2,29 +2,63 @@ import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useSegmentCounts, useCustomers } from "@/hooks/segmentation";
+import { useSegmentCounts } from "@/hooks/segmentation";
 import { useSyncNow, useComputeSegments } from "@/hooks/edgeFunctions";
-import { Users, TrendingUp, AlertTriangle, X, RefreshCw } from "lucide-react";
+import { useLifecycleInsights } from "@/hooks/dashboardInsights";
+import { Users, RefreshCw } from "lucide-react";
 import { CacheIndicator } from "@/components/CacheIndicator";
+import { LifecycleExplainer } from "@/components/dashboard/LifecycleExplainer";
+import { EnhancedLifecycleCard } from "@/components/dashboard/EnhancedLifecycleCard";
+import { ChurnTimeline } from "@/components/dashboard/ChurnTimeline";
+import { ProductLineStats } from "@/components/dashboard/ProductLineStats";
+import { ActionableInsights } from "@/components/dashboard/ActionableInsights";
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { data: counts, refetch, isRefetching, dataUpdatedAt } = useSegmentCounts();
-  const { data: allCustomers } = useCustomers();
+  const { data: insights } = useLifecycleInsights();
   const syncMutation = useSyncNow();
   const computeMutation = useComputeSegments();
 
-  // PHASE 2: Use segment counts for accurate total
   const totalCustomers = counts 
     ? (counts.New || 0) + (counts.Active || 0) + (counts['At-risk'] || 0) + 
       (counts.Churned || 0) + (counts.Winback || 0)
     : 0;
+  
+  const getInsightForLifecycle = (lifecycle: string) => {
+    return insights?.find((i) => i.lifecycle === lifecycle);
+  };
   const lifecycleCards = [
-    { label: "New", count: counts?.New || 0, color: "bg-blue-500", variant: "default" as const },
-    { label: "Active", count: counts?.Active || 0, color: "bg-green-500", variant: "default" as const },
-    { label: "At-risk", count: counts?.["At-risk"] || 0, color: "bg-yellow-500", variant: "default" as const },
-    { label: "Churned", count: counts?.Churned || 0, color: "bg-red-500", variant: "destructive" as const },
-    { label: "Winback", count: counts?.Winback || 0, color: "bg-purple-500", variant: "default" as const },
+    { 
+      label: "New", 
+      count: counts?.New || 0, 
+      variant: "default" as const,
+      tooltip: "Customers who made their first booking within the last 90 days"
+    },
+    { 
+      label: "Active", 
+      count: counts?.Active || 0, 
+      variant: "default" as const,
+      tooltip: "Customers with any booking in last 7 months, or active storage relationship"
+    },
+    { 
+      label: "At-risk", 
+      count: counts?.["At-risk"] || 0, 
+      variant: "secondary" as const,
+      tooltip: "No bookings for 7-9 months. These customers can still be won back with targeted campaigns"
+    },
+    { 
+      label: "Churned", 
+      count: counts?.Churned || 0, 
+      variant: "destructive" as const,
+      tooltip: "No bookings for 9+ months. Requires stronger re-engagement strategies"
+    },
+    { 
+      label: "Winback", 
+      count: counts?.Winback || 0, 
+      variant: "default" as const,
+      tooltip: "Previously churned customers who have returned"
+    },
   ];
 
   const valueCards = [
@@ -60,6 +94,9 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Lifecycle Explainer */}
+      <LifecycleExplainer />
+
       {/* Total Customers Card */}
       <Card>
         <CardHeader>
@@ -77,55 +114,70 @@ export default function Dashboard() {
       <div>
         <h2 className="text-2xl font-semibold mb-4">Lifecycle Distribution</h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-          {lifecycleCards.map((card) => (
-            <Card
-              key={card.label}
-              className="cursor-pointer hover:shadow-lg transition-shadow"
-              onClick={() => navigate(`/customers?lifecycle=${card.label}`)}
-            >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium flex items-center justify-between">
-                  {card.label}
-                  <Badge variant={card.variant}>{card.label}</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold">{card.count.toLocaleString()}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {totalCustomers > 0 ? Math.round((card.count / totalCustomers) * 100) : 0}% of total
-                </p>
-              </CardContent>
-            </Card>
-          ))}
+          {lifecycleCards.map((card) => {
+            const insight = getInsightForLifecycle(card.label);
+            return (
+              <EnhancedLifecycleCard
+                key={card.label}
+                label={card.label}
+                count={card.count}
+                variant={card.variant}
+                totalCustomers={totalCustomers}
+                avgRecencyDays={insight?.avg_recency_days}
+                avgFrequency={insight?.avg_frequency_24m}
+                avgRevenue={insight?.avg_revenue_24m}
+                onClick={() => navigate(`/customers?lifecycle=${card.label}`)}
+                tooltipText={card.tooltip}
+              />
+            );
+          })}
         </div>
       </div>
+
+      {/* Churn Timeline */}
+      <ChurnTimeline />
+
+      {/* Actionable Insights */}
+      <ActionableInsights />
 
       {/* Value Tier Distribution */}
       <div>
         <h2 className="text-2xl font-semibold mb-4">Value Tier Distribution</h2>
         <div className="grid gap-4 md:grid-cols-3">
-          {valueCards.map((card) => (
-            <Card
-              key={card.label}
-              className="cursor-pointer hover:shadow-lg transition-shadow"
-              onClick={() => navigate(`/customers?value_tier=${card.label.split(' ')[0]}`)}
-            >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium flex items-center justify-between">
-                  {card.label}
-                  <Badge variant={card.variant}>{card.label.split(' ')[0]}</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold">{card.count.toLocaleString()}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {totalCustomers > 0 ? Math.round((card.count / totalCustomers) * 100) : 0}% of total
-                </p>
-              </CardContent>
-            </Card>
-          ))}
+          {valueCards.map((card) => {
+            const insight = getInsightForLifecycle(card.label.split(' ')[0]);
+            return (
+              <Card
+                key={card.label}
+                className="cursor-pointer transition-shadow hover:shadow-lg"
+                onClick={() => navigate(`/customers?value_tier=${card.label.split(' ')[0]}`)}
+              >
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center justify-between text-sm font-medium">
+                    {card.label}
+                    <Badge variant={card.variant}>{card.label.split(' ')[0]}</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <div className="text-3xl font-bold">{card.count.toLocaleString()}</div>
+                  <p className="text-xs text-muted-foreground">
+                    {totalCustomers > 0 ? Math.round((card.count / totalCustomers) * 100) : 0}% of total
+                  </p>
+                  {insight && (
+                    <div className="mt-3 space-y-1 border-t pt-2 text-xs text-muted-foreground">
+                      <div>Avg revenue: {insight.avg_revenue_24m.toLocaleString()} NOK</div>
+                      <div>Avg bookings: {insight.avg_frequency_24m.toFixed(1)}/24mo</div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       </div>
+
+      {/* Product Line Intelligence */}
+      <ProductLineStats />
     </div>
   );
 }
