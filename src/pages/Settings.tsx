@@ -399,19 +399,61 @@ export default function Settings() {
               ? Math.min(100, (dbCounts.bookings / bookingsStatus.estimated_total) * 100)
               : 0;
 
-            // Use actual database bookings count for order lines (1:1 minimum ratio)
+            // STEP 7: Fix Order Lines status - must be extracted from ALL bookings
             const expectedOrderLines = dbCounts?.bookings || 0;
-            const orderLinesProgress = expectedOrderLines > 0
-              ? Math.min(100, ((dbCounts?.order_lines || 0) / expectedOrderLines) * 100)
-              : 0;
+            const orderLinesActuallyComplete = 
+              orderLinesStatus?.status === "completed" && 
+              bookingsStatus?.status === "completed" &&
+              (dbCounts?.order_lines || 0) >= expectedOrderLines * 0.9; // At least 90% coverage
+            
+            const orderLinesProgress = orderLinesActuallyComplete 
+              ? 100
+              : expectedOrderLines > 0
+                ? Math.min(100, ((dbCounts?.order_lines || 0) / expectedOrderLines) * 100)
+                : 0;
 
             const isRunning = syncStatus?.some((s) => s.status === "running") ?? false;
             const hasError = syncStatus?.some((s) => s.status === "error") ?? false;
-            // Consider sync complete if all are "completed" or "success" status, OR if progress is sufficient
-            const allSyncsComplete = customersStatus?.status === "completed" && 
-                                     bookingsStatus?.status === "completed" && 
-                                     (orderLinesStatus?.status === "completed" || orderLinesStatus?.status === "success");
-            const isSyncComplete = allSyncsComplete || (customersProgress >= 100 && bookingsProgress >= 100 && orderLinesProgress >= 90);
+            
+            // STEP 3: Fix Phase Completion Logic - only trust actual status='completed'
+            const allSyncsComplete = 
+              userGroupsStatus?.status === "completed" && 
+              customersStatus?.status === "completed" && 
+              bookingsStatus?.status === "completed" && 
+              orderLinesStatus?.status === "completed";
+            
+            const isSyncComplete = allSyncsComplete; // Don't use percentage fallback
+            
+            // STEP 1 & 2: Calculate weighted overall progress + active phase
+            const totalExpected = {
+              userGroups: userGroupsStatus?.estimated_total || 11266,
+              members: customersStatus?.estimated_total || 11052,
+              bookings: bookingsStatus?.estimated_total || 21411,
+              orderLines: bookingsStatus?.estimated_total || 21411 // 1:1 with bookings
+            };
+
+            const totalRecords = totalExpected.userGroups + totalExpected.members + totalExpected.bookings + totalExpected.orderLines;
+
+            const weightedProgress = (
+              (userGroupsProgress / 100) * totalExpected.userGroups +
+              (customersProgress / 100) * totalExpected.members +
+              (bookingsProgress / 100) * totalExpected.bookings +
+              (orderLinesProgress / 100) * totalExpected.orderLines
+            ) / totalRecords;
+
+            const overallProgress = Math.round(weightedProgress * 100);
+
+            // STEP 2: Determine which phase is actually running
+            const activePhase = 
+              userGroupsStatus?.status === 'running' ? '0: User Groups' :
+              userGroupsStatus?.status !== 'completed' ? '0: User Groups (waiting)' :
+              customersStatus?.status === 'running' ? '1: Members' :
+              customersStatus?.status !== 'completed' ? '1: Members (waiting)' :
+              bookingsStatus?.status === 'running' ? '2: Bookings' :
+              bookingsStatus?.status !== 'completed' ? '2: Bookings (waiting)' :
+              orderLinesStatus?.status === 'running' ? '3: Order Lines' :
+              orderLinesStatus?.status !== 'completed' ? '3: Order Lines (waiting)' :
+              'All Complete';
             
             // Determine current step for help panel
             const getCurrentStep = (): 1 | 2 | 3 | 4 => {
@@ -550,17 +592,17 @@ export default function Settings() {
                   </AlertDescription>
                 </Alert>
               ) : isRunning ? (
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-green-600 dark:text-green-400">
-                    ✅ Syncing automatically every 2 minutes
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Overall progress: {Math.round((customersProgress + bookingsProgress + orderLinesProgress) / 3)}%
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    You can safely leave this page - sync continues in background.
-                  </p>
-                </div>
+                 <div className="space-y-2">
+                   <p className="text-sm font-medium text-green-600 dark:text-green-400">
+                     ✅ Syncing automatically every 2 minutes
+                   </p>
+                   <p className="text-sm text-muted-foreground">
+                     Overall progress: {overallProgress}% | Active Phase: {activePhase}
+                   </p>
+                   <p className="text-sm text-muted-foreground">
+                     You can safely leave this page - sync continues in background.
+                   </p>
+                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
                   Sync is idle. {syncStatus?.some(s => s.status === 'pending') ? 'Next sync in ~2 minutes.' : 'Enable auto-sync to keep data updated.'}
@@ -646,14 +688,39 @@ export default function Settings() {
 
                 <WhatsNextCallout type={getWhatsNextType()} />
 
+                {/* STEP 9: Sequential Sync Explanation Card */}
+                <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
+                  <CardHeader>
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                      Sequential Sync Process
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="text-xs text-muted-foreground space-y-2">
+                    <p>Syncs run in strict order to maintain data integrity:</p>
+                    <ol className="list-decimal list-inside space-y-1 ml-2">
+                      <li><strong>User Groups</strong> must complete before Members (users belong to groups)</li>
+                      <li><strong>Members</strong> must complete before Bookings (bookings reference users)</li>
+                      <li><strong>Bookings</strong> must complete before Order Lines (lines extracted from bookings)</li>
+                    </ol>
+                    <p className="pt-2 text-blue-600 dark:text-blue-400">
+                      ⚡ Each phase completes 100% before the next begins. This ensures all data relationships are valid.
+                    </p>
+                  </CardContent>
+                </Card>
+
                 <div className="grid md:grid-cols-2 gap-4">
                   <SyncWorkflowGuide
-                    userGroupsComplete={userGroupsProgress >= 100}
-                    customersComplete={customersProgress >= 100}
-                    bookingsComplete={bookingsProgress >= 100}
-                    orderLinesComplete={orderLinesProgress >= 90}
+                    userGroupsComplete={userGroupsStatus?.status === 'completed'}
+                    customersComplete={customersStatus?.status === 'completed'}
+                    bookingsComplete={bookingsStatus?.status === 'completed'}
+                    orderLinesComplete={orderLinesStatus?.status === 'completed'}
                     segmentsComputed={!!lastComputeTime}
                     isRunning={isRunning}
+                    userGroupsStatus={userGroupsStatus}
+                    customersStatus={customersStatus}
+                    bookingsStatus={bookingsStatus}
+                    orderLinesStatus={orderLinesStatus}
                   />
                   <SyncTimeline events={syncEvents} />
                 </div>
@@ -665,62 +732,72 @@ export default function Settings() {
                       Real-time progress tracking - Auto-refreshes every 5 seconds
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-4">
-                      <div ref={userGroupsProgress < 100 && isRunning ? setActivePhaseRef : null}>
-                        <SyncProgressBar
-                          resource="user_groups"
-                          progress={userGroupsProgress}
-                          total={userGroupsStatus?.estimated_total || dbCounts?.user_groups_total}
-                          inDb={dbCounts?.user_groups_total || 0}
-                          status={userGroupsStatus?.status || "pending"}
-                          syncMode={userGroupsStatus?.sync_mode}
-                          currentPage={userGroupsStatus?.current_page}
-                          lastRunAt={userGroupsStatus?.last_run_at ? new Date(userGroupsStatus.last_run_at) : null}
-                        />
-                      </div>
-                      
-                      <div ref={customersProgress < 100 && userGroupsProgress >= 100 && isRunning ? setActivePhaseRef : null}>
-                        <SyncProgressBar
-                          resource="customers"
-                          progress={customersProgress}
-                          total={customersStatus?.estimated_total || dbCounts?.customers_total}
-                          inDb={dbCounts?.customers_total || 0}
-                          status={customersStatus?.status || "pending"}
-                          syncMode={customersStatus?.sync_mode}
-                          currentPage={customersStatus?.current_page}
-                          lastRunAt={customersStatus?.last_run_at ? new Date(customersStatus.last_run_at) : null}
-                        />
-                      </div>
-                      
-                      <div ref={bookingsProgress < 100 && customersProgress >= 100 && isRunning ? setActivePhaseRef : null}>
-                        <SyncProgressBar
-                          resource="bookings"
-                          progress={bookingsProgress}
-                          total={bookingsStatus?.estimated_total || dbCounts?.bookings}
-                          inDb={dbCounts?.bookings || 0}
-                          status={bookingsStatus?.status || "pending"}
-                          syncMode={bookingsStatus?.sync_mode}
-                          currentPage={bookingsStatus?.current_page}
-                          lastRunAt={bookingsStatus?.last_run_at ? new Date(bookingsStatus.last_run_at) : null}
-                          estimatedTime={bookingsStatus?.sync_mode === "full" ? estimateBookingsTime() : undefined}
-                        />
-                      </div>
+                   <CardContent className="space-y-4">
+                     {/* STEP 10: Only show progress bars for active/completed phases (sequential) */}
+                     <div className="space-y-4">
+                       {/* Always show User Groups (Phase 0) */}
+                       <div ref={userGroupsProgress < 100 && isRunning ? setActivePhaseRef : null}>
+                         <SyncProgressBar
+                           resource="user_groups"
+                           progress={userGroupsProgress}
+                           total={userGroupsStatus?.estimated_total || dbCounts?.user_groups_total}
+                           inDb={dbCounts?.user_groups_total || 0}
+                           status={userGroupsStatus?.status || "pending"}
+                           syncMode={userGroupsStatus?.sync_mode}
+                           currentPage={userGroupsStatus?.current_page}
+                           lastRunAt={userGroupsStatus?.last_run_at ? new Date(userGroupsStatus.last_run_at) : null}
+                         />
+                       </div>
+                       
+                       {/* Only show Members if User Groups is completed */}
+                       {userGroupsStatus?.status === 'completed' && (
+                         <div ref={customersProgress < 100 && userGroupsProgress >= 100 && isRunning ? setActivePhaseRef : null}>
+                           <SyncProgressBar
+                             resource="customers"
+                             progress={customersProgress}
+                             total={customersStatus?.estimated_total || dbCounts?.customers_total}
+                             inDb={dbCounts?.customers_total || 0}
+                             status={customersStatus?.status || "pending"}
+                             syncMode={customersStatus?.sync_mode}
+                             currentPage={customersStatus?.current_page}
+                             lastRunAt={customersStatus?.last_run_at ? new Date(customersStatus.last_run_at) : null}
+                           />
+                         </div>
+                       )}
+                       
+                       {/* Only show Bookings if Members is completed */}
+                       {customersStatus?.status === 'completed' && (
+                         <div ref={bookingsProgress < 100 && customersProgress >= 100 && isRunning ? setActivePhaseRef : null}>
+                           <SyncProgressBar
+                             resource="bookings"
+                             progress={bookingsProgress}
+                             total={bookingsStatus?.estimated_total || dbCounts?.bookings}
+                             inDb={dbCounts?.bookings || 0}
+                             status={bookingsStatus?.status || "pending"}
+                             syncMode={bookingsStatus?.sync_mode}
+                             currentPage={bookingsStatus?.current_page}
+                             lastRunAt={bookingsStatus?.last_run_at ? new Date(bookingsStatus.last_run_at) : null}
+                             estimatedTime={bookingsStatus?.sync_mode === "full" ? estimateBookingsTime() : undefined}
+                           />
+                         </div>
+                       )}
 
-                      <div ref={orderLinesProgress < 90 && bookingsProgress >= 100 && isRunning ? setActivePhaseRef : null}>
-                        <SyncProgressBar
-                          resource="order_lines"
-                          progress={orderLinesProgress}
-                          total={Math.round(expectedOrderLines)}
-                          inDb={dbCounts?.order_lines || 0}
-                          status={orderLinesStatus?.status || "pending"}
-                          syncMode={orderLinesStatus?.sync_mode}
-                          currentPage={orderLinesStatus?.current_page}
-                          lastRunAt={orderLinesStatus?.last_run_at ? new Date(orderLinesStatus.last_run_at) : null}
-                          estimatedTime={estimateOrderLinesTime()
-                          }
-                        />
-                      </div>
+                        {/* Only show Order Lines if Bookings is completed */}
+                        {bookingsStatus?.status === 'completed' && (
+                          <div ref={orderLinesProgress < 90 && bookingsProgress >= 100 && isRunning ? setActivePhaseRef : null}>
+                            <SyncProgressBar
+                              resource="order_lines"
+                              progress={orderLinesProgress}
+                              total={Math.round(expectedOrderLines)}
+                              inDb={dbCounts?.order_lines || 0}
+                              status={orderLinesStatus?.status || "pending"}
+                              syncMode={orderLinesStatus?.sync_mode}
+                              currentPage={orderLinesStatus?.current_page}
+                              lastRunAt={orderLinesStatus?.last_run_at ? new Date(orderLinesStatus.last_run_at) : null}
+                              estimatedTime={estimateOrderLinesTime()}
+                            />
+                          </div>
+                        )}
                     </div>
 
                     <SyncMetricsCards

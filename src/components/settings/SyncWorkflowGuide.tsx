@@ -7,8 +7,12 @@ interface SyncWorkflowGuideProps {
   customersComplete: boolean;
   bookingsComplete: boolean;
   orderLinesComplete: boolean;
-  segmentsComputed: boolean;
+  segmentsComputed?: boolean;
   isRunning: boolean;
+  userGroupsStatus?: any;
+  customersStatus?: any;
+  bookingsStatus?: any;
+  orderLinesStatus?: any;
 }
 
 export function SyncWorkflowGuide({
@@ -16,9 +20,14 @@ export function SyncWorkflowGuide({
   customersComplete,
   bookingsComplete,
   orderLinesComplete,
-  segmentsComputed,
+  segmentsComputed = false,
   isRunning,
+  userGroupsStatus,
+  customersStatus,
+  bookingsStatus,
+  orderLinesStatus,
 }: SyncWorkflowGuideProps) {
+  // STEP 8: Use actual status='completed', not percentages
   const allDataSynced = userGroupsComplete && customersComplete && bookingsComplete && orderLinesComplete;
 
   const steps = [
@@ -26,10 +35,26 @@ export function SyncWorkflowGuide({
       number: 1,
       title: "Sync Data",
       substeps: [
-        { label: "User Groups (Primary Customers) synced", complete: userGroupsComplete },
-        { label: "Members (users) synced", complete: customersComplete },
-        { label: "Bookings synced", complete: bookingsComplete },
-        { label: "Order lines extracted", complete: orderLinesComplete },
+        { 
+          label: `User Groups synced: ${userGroupsComplete ? '✓' : '⏳'} ${userGroupsStatus?.rows_fetched?.toLocaleString() || 0}`, 
+          complete: userGroupsComplete,
+          waiting: false,
+        },
+        { 
+          label: `Members synced: ${customersComplete ? '✓' : '⏳'} ${customersStatus?.rows_fetched?.toLocaleString() || 0}`, 
+          complete: customersComplete,
+          waiting: !userGroupsComplete,
+        },
+        { 
+          label: `Bookings synced: ${bookingsComplete ? '✓' : '⏳'} ${bookingsStatus?.rows_fetched?.toLocaleString() || 0}`, 
+          complete: bookingsComplete,
+          waiting: !customersComplete,
+        },
+        { 
+          label: `Order lines extracted: ${orderLinesComplete ? '✓' : '⏳'} ${orderLinesStatus?.rows_fetched?.toLocaleString() || 0}`, 
+          complete: orderLinesComplete,
+          waiting: !bookingsComplete,
+        },
       ],
       complete: allDataSynced,
       active: isRunning && !allDataSynced,
@@ -38,7 +63,7 @@ export function SyncWorkflowGuide({
       number: 2,
       title: "Compute Segments",
       substeps: [
-        { label: "Calculate customer lifecycle & value tiers", complete: segmentsComputed },
+        { label: "Calculate customer lifecycle & value tiers", complete: segmentsComputed, waiting: !allDataSynced },
       ],
       complete: segmentsComputed,
       active: !isRunning && allDataSynced && !segmentsComputed,
@@ -47,7 +72,7 @@ export function SyncWorkflowGuide({
       number: 3,
       title: "View Insights",
       substeps: [
-        { label: "Analyze customer segments on Dashboard", complete: segmentsComputed },
+        { label: "Analyze customer segments on Dashboard", complete: segmentsComputed, waiting: !segmentsComputed },
       ],
       complete: segmentsComputed,
       active: false,
@@ -88,32 +113,36 @@ export function SyncWorkflowGuide({
             
             <div className="ml-8 space-y-1">
               {step.substeps.map((substep, idx) => (
-                <div key={idx} className="flex items-center gap-2 text-xs">
-                  {substep.complete ? (
-                    <CheckCircle className="h-3 w-3 text-green-600 dark:text-green-400" />
-                  ) : step.active ? (
-                    <RefreshCw className="h-3 w-3 animate-spin text-blue-500" />
-                  ) : (
-                    <Clock className="h-3 w-3 text-muted-foreground" />
-                  )}
-                  <span
-                    className={cn(
-                      substep.complete
-                        ? "text-foreground"
-                        : step.active
-                        ? "text-foreground"
-                        : "text-muted-foreground"
+                <div key={idx} className="space-y-1">
+                  <div className="flex items-center gap-2 text-xs">
+                    {substep.complete ? (
+                      <CheckCircle className="h-3 w-3 text-green-600 dark:text-green-400" />
+                    ) : step.active && !substep.waiting ? (
+                      <RefreshCw className="h-3 w-3 animate-spin text-blue-500" />
+                    ) : (
+                      <Clock className="h-3 w-3 text-muted-foreground" />
                     )}
-                  >
-                    {substep.label}
-                  </span>
+                    <span
+                      className={cn(
+                        substep.complete
+                          ? "text-foreground"
+                          : step.active && !substep.waiting
+                          ? "text-foreground"
+                          : "text-muted-foreground"
+                      )}
+                    >
+                      {substep.label}
+                    </span>
+                  </div>
+                  {/* STEP 8: Add waiting indicators for sequential phases */}
+                  {substep.waiting && !substep.complete && (
+                    <p className="text-xs text-yellow-600 dark:text-yellow-400 italic ml-5 flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      Waiting for previous phase to complete...
+                    </p>
+                  )}
                 </div>
               ))}
-              {!step.complete && !step.active && step.number > 1 && (
-                <p className="text-xs text-muted-foreground italic mt-1">
-                  (waiting for previous step...)
-                </p>
-              )}
             </div>
           </div>
         ))}

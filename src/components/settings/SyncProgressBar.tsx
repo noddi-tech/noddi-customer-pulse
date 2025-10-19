@@ -37,6 +37,13 @@ export function SyncProgressBar({
     return resource;
   };
   
+  // STEP 4: Determine if waiting for previous phase
+  const isWaitingForPrevious = status === 'pending' && (
+    (resource === 'customers' && progress < 100) ||
+    (resource === 'bookings' && progress < 100) ||
+    (resource === 'order_lines' && progress < 100)
+  );
+  
   // Calculate actual progress with multiple fallbacks
   const getActualProgress = () => {
     // If status is 'completed' or 'success', show 100%
@@ -144,6 +151,16 @@ export function SyncProgressBar({
           )}
         </div>
       </div>
+      
+      {/* STEP 4: Add "Waiting for Previous Phase" Messages */}
+      {isWaitingForPrevious && (
+        <div className="mt-2 text-xs text-yellow-600 dark:text-yellow-400 flex items-center gap-1">
+          <AlertCircle className="h-3 w-3" />
+          {resource === 'customers' && 'Waiting for User Groups to complete (sequential sync)'}
+          {resource === 'bookings' && 'Waiting for Members to complete (sequential sync)'}
+          {resource === 'order_lines' && 'Waiting for Bookings to complete (sequential sync)'}
+        </div>
+      )}
     </div>
   );
 }

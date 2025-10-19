@@ -30,36 +30,34 @@ export function SyncMetricsCards({
   expectedOrderLines,
   lastSync,
 }: SyncMetricsCardsProps) {
+  // STEP 6: Fix Metrics Cards Terminology - clarify "synced from API" vs "active (computed)"
   const orderLinesComplete = orderLines >= expectedOrderLines * 0.9;
   const metrics = [
     {
-      label: "Active User Groups",
-      value: userGroupsActive.toLocaleString(),
-      total: userGroupsTotal,
+      label: "User Groups Synced",
+      value: userGroupsTotal.toLocaleString(),
+      subtitle: `${userGroupsB2B} B2B, ${userGroupsB2C.toLocaleString()} B2C`,
+      tooltip: "Total user groups (primary customers) synced from Noddi API",
       icon: Users,
       color: "text-blue-600 dark:text-blue-400",
-      subtitle: `${userGroupsB2B} B2B, ${userGroupsB2C.toLocaleString()} B2C`,
-      tooltip: "Households/accounts with at least one active booking in the last 24 months",
     },
     {
-      label: "Active Bookings",
-      value: bookingsCount.toLocaleString(),
-      total: bookingsTotal,
+      label: "Bookings Synced",
+      value: bookingsTotal.toLocaleString(),
+      subtitle: `${bookingsWithUser.toLocaleString()} mapped to users`,
+      tooltip: "Total bookings synced from Noddi API (includes all statuses)",
       icon: Calendar,
       color: "text-green-600 dark:text-green-400",
-      subtitle: `${bookingsWithUser.toLocaleString()} with user mapping`,
-      tooltip: "Bookings in Draft/Confirmed/Assigned/Completed status (excludes cancelled/unable-to-complete)",
     },
     {
-      label: "Active Order Lines",
+      label: "Order Lines Extracted",
       value: orderLines.toLocaleString(),
-      total: orderLinesTotal,
-      icon: ShoppingCart,
-      color: orderLinesComplete ? "text-purple-600 dark:text-purple-400" : "text-orange-600 dark:text-orange-400",
       subtitle: orderLinesComplete 
         ? `✓ From ${expectedOrderLines.toLocaleString()} bookings` 
-        : `Processing ${expectedOrderLines.toLocaleString()} bookings...`,
-      tooltip: "Order lines from active bookings with positive amounts",
+        : `⏳ Processing ${expectedOrderLines.toLocaleString()} bookings...`,
+      tooltip: "Order lines extracted from bookings (1+ per booking)",
+      icon: ShoppingCart,
+      color: orderLinesComplete ? "text-purple-600 dark:text-purple-400" : "text-orange-600 dark:text-orange-400",
     },
   ];
 
@@ -85,14 +83,7 @@ export function SyncMetricsCards({
                     <Icon className={`h-4 w-4 ${metric.color}`} />
                     <p className="text-xs text-muted-foreground">{metric.label}</p>
                   </div>
-                  <div className="flex items-baseline gap-2">
-                    <p className="text-lg font-bold">{metric.value}</p>
-                    {metric.total && metric.total !== parseInt(metric.value.replace(/,/g, '')) && (
-                      <p className="text-xs text-muted-foreground">
-                        / {metric.total.toLocaleString()} total
-                      </p>
-                    )}
-                  </div>
+                  <p className="text-lg font-bold">{metric.value}</p>
                   {metric.subtitle && (
                     <p className="text-xs text-muted-foreground mt-1">{metric.subtitle}</p>
                   )}

@@ -102,38 +102,31 @@ export function SyncStatusCard({
           message: "Analyzing customer data and calculating segments...",
         };
       case "syncing":
-        // Detect current phase based on what's actually running
+        // STEP 5: Only show phase number when that specific phase is RUNNING
         let currentPhase = "";
         let message = "";
         let lastRunAt: Date | null = null;
         
-        // Special case: order_lines complete but bookings full sync still running
-        if (orderLinesStatus?.status === "success" && 
-            bookingsStatus?.sync_mode === "full" && 
-            bookingsStatus?.status === "running") {
-          currentPhase = `Order Lines Extracted`;
-          message = `✓ Extracted ${orderLinesInDb.toLocaleString()} lines from ${orderLinesStatus?.total_records || 0} bookings. ⏳ More bookings syncing... Re-extract after completion for all data.`;
-          lastRunAt = bookingsStatus?.last_run_at ? new Date(bookingsStatus.last_run_at) : null;
-        } else if (userGroupsProgress < 100 && userGroupsStatus?.status === "running") {
-          currentPhase = `Phase 0/4: Syncing User Groups (Primary Customers)... (${Math.round(userGroupsProgress)}%)`;
-          message = `${userGroupsInDb.toLocaleString()} user groups synced`;
+        if (userGroupsStatus?.status === "running") {
+          currentPhase = `Phase 0: Syncing User Groups... (${Math.round(userGroupsProgress)}%)`;
+          message = `${userGroupsInDb.toLocaleString()} of ${userGroupsTotal?.toLocaleString() || '~11,266'} user groups synced`;
           lastRunAt = userGroupsStatus?.last_run_at ? new Date(userGroupsStatus.last_run_at) : null;
-        } else if (customersProgress < 100 && customersStatus?.status === "running") {
-          currentPhase = `Phase 1/4: Syncing Contacts (Individual Members)... (${Math.round(customersProgress)}%)`;
-          message = `${customersInDb.toLocaleString()} contacts synced`;
+        } else if (customersStatus?.status === "running") {
+          currentPhase = `Phase 1: Syncing Members... (${Math.round(customersProgress)}%)`;
+          message = `${customersInDb.toLocaleString()} of ${customersTotal?.toLocaleString() || '~11,052'} members synced`;
           lastRunAt = customersStatus?.last_run_at ? new Date(customersStatus.last_run_at) : null;
-        } else if (bookingsProgress < 100 && bookingsStatus?.status === "running") {
+        } else if (bookingsStatus?.status === "running") {
           const mode = bookingsStatus?.sync_mode === "full" ? "FULL RE-SYNC" : "incremental";
           const currentPage = bookingsStatus?.current_page || 0;
           const estimatedPages = bookingsStatus?.estimated_total 
             ? Math.ceil(bookingsStatus.estimated_total / 100) 
             : 300;
           
-          currentPhase = `Phase 2/4: Syncing bookings (${mode})... (${Math.round(bookingsProgress)}%)`;
+          currentPhase = `Phase 2: Syncing Bookings (${mode})... (${Math.round(bookingsProgress)}%)`;
           message = `Page ${currentPage} of ~${estimatedPages} | ${bookingsInDb.toLocaleString()} bookings synced`;
           lastRunAt = bookingsStatus?.last_run_at ? new Date(bookingsStatus.last_run_at) : null;
         } else if (orderLinesStatus?.status === "running") {
-          currentPhase = `Phase 3/4: Extracting order lines... (${Math.round(orderLinesProgress)}%)`;
+          currentPhase = `Phase 3: Extracting Order Lines... (${Math.round(orderLinesProgress)}%)`;
           message = `${orderLinesInDb.toLocaleString()} / ${expectedOrderLines.toLocaleString()} order lines extracted`;
           lastRunAt = orderLinesStatus?.last_run_at ? new Date(orderLinesStatus.last_run_at) : null;
         }
