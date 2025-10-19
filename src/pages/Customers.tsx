@@ -135,6 +135,17 @@ export default function Customers() {
 
       {/* Virtualized Table */}
       <Card>
+        {/* Header Row */}
+        <div className="border-b bg-muted/50 p-4 flex items-center justify-between font-medium text-sm sticky top-0 z-10">
+          <div className="flex-1 min-w-0">Customer</div>
+          <div className="flex items-center gap-6 ml-4">
+            <div className="min-w-[140px]">Status</div>
+            <div className="min-w-[80px] text-right">Orders</div>
+            <div className="min-w-[100px] text-right">Avg Order</div>
+            <div className="min-w-[120px] text-right">24m Revenue</div>
+          </div>
+        </div>
+        
         <div
           ref={parentRef}
           className="h-[600px] overflow-auto"
@@ -171,8 +182,8 @@ export default function Customers() {
                     <p className="text-sm text-muted-foreground truncate">{customer.email}</p>
                   </div>
                   
-                  <div className="flex items-center gap-4 ml-4">
-                    <div className="flex gap-2">
+                  <div className="flex items-center gap-6 ml-4">
+                    <div className="flex gap-2 min-w-[140px]">
                       <Badge variant={
                         customer.segments?.lifecycle === "Churned" ? "destructive" :
                         customer.segments?.lifecycle === "At-risk" ? "default" :
@@ -181,17 +192,26 @@ export default function Customers() {
                         {customer.segments?.lifecycle}
                       </Badge>
                       <Badge variant="secondary">{customer.segments?.value_tier}</Badge>
-                      {customer.features?.storage_active && (
-                        <Badge variant="outline">Storage Active</Badge>
-                      )}
                     </div>
                     
-                    <div className="text-sm text-muted-foreground min-w-[120px] text-right">
-                      {customer.features?.revenue_24m ? (
-                        <span>€{Number(customer.features.revenue_24m).toLocaleString()}</span>
-                      ) : (
-                        <span>-</span>
-                      )}
+                    <div className="text-sm min-w-[80px] text-right">
+                      <div className="font-medium">{customer.features?.frequency_24m || 0}</div>
+                    </div>
+                    
+                    <div className="text-sm min-w-[100px] text-right">
+                      <div className="font-medium">
+                        {customer.features?.revenue_24m && customer.features?.frequency_24m
+                          ? `${Math.round(customer.features.revenue_24m / customer.features.frequency_24m).toLocaleString()} kr`
+                          : '-'}
+                      </div>
+                    </div>
+                    
+                    <div className="text-sm min-w-[120px] text-right">
+                      <div className="font-medium">
+                        {customer.features?.revenue_24m 
+                          ? `${Number(customer.features.revenue_24m).toLocaleString()} kr`
+                          : '-'}
+                      </div>
                     </div>
                   </div>
                 </div>

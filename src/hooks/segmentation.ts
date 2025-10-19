@@ -26,6 +26,7 @@ export type Customer = {
     last_booking_at: string | null;
     revenue_24m: number | null;
     margin_24m: number | null;
+    frequency_24m: number | null;
     service_tags_all: any;
     storage_active: boolean | null;
     discount_share_24m: number | null;
@@ -80,7 +81,7 @@ export function useCustomers(params?: {
             last_name,
             email,
             segments!inner(lifecycle,value_tier,tags),
-            features!inner(last_booking_at,revenue_24m,margin_24m,service_tags_all,storage_active,discount_share_24m,recency_days)`
+            features!inner(last_booking_at,revenue_24m,margin_24m,frequency_24m,service_tags_all,storage_active,discount_share_24m,recency_days)`
           )
           .range(from, from + pageSize - 1)
           .order("id");

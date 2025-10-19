@@ -7,11 +7,14 @@ export function exportCustomersToCSV(customers: Customer[], filename?: string) {
     Email: customer.email || "",
     Lifecycle: customer.segments?.lifecycle || "",
     "Value Tier": customer.segments?.value_tier || "",
-    Tags: (customer.features?.service_tags_all || []).join(", "),
+    "Orders (24m)": customer.features?.frequency_24m || 0,
+    "Revenue per Order (NOK)": customer.features?.revenue_24m && customer.features?.frequency_24m
+      ? Math.round(customer.features.revenue_24m / customer.features.frequency_24m)
+      : 0,
+    "Total Revenue 24m (NOK)": customer.features?.revenue_24m || 0,
+    "Margin 24m (NOK)": customer.features?.margin_24m || 0,
     "Last Booking": customer.features?.last_booking_at || "",
-    "Revenue (24m)": customer.features?.revenue_24m || 0,
-    "Margin": customer.features?.margin_24m || 0,
-    "Discount Share": customer.features?.discount_share_24m || 0,
+    "Days Since Booking": customer.features?.recency_days || "",
     "Storage Active": customer.features?.storage_active ? "Yes" : "No",
   }));
 
