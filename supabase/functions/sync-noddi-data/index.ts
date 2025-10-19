@@ -473,20 +473,19 @@ Deno.serve(async (req) => {
       }
     }
     
-    // GATE: Only proceed if User Groups completed
-    if (userGroupsState.status !== 'completed') {
-      const currentState = await getState("user_groups");
-      if (currentState.status !== 'completed') {
-        console.log('[GATE] User Groups not complete, stopping here');
-        return new Response(JSON.stringify({ 
-          ok: true, 
-          phase: 0,
-          message: 'Waiting for User Groups to complete...' 
-        }), {
-          headers: { ...corsHeaders, "content-type": "application/json" }
-        });
-      }
+    // GATE: Re-fetch User Groups state to check completion
+    const freshUserGroupsState = await getState("user_groups");
+    if (freshUserGroupsState.status !== 'completed') {
+      console.log('[GATE] User Groups not complete, stopping here');
+      return new Response(JSON.stringify({ 
+        ok: true, 
+        phase: 0,
+        message: 'Waiting for User Groups to complete...' 
+      }), {
+        headers: { ...corsHeaders, "content-type": "application/json" }
+      });
     }
+    console.log('[GATE] ✓ User Groups completed, proceeding to Phase 1');
     
     // ===== PHASE 1: SYNC MEMBERS (INDIVIDUAL USERS) - MUST COMPLETE BEFORE BOOKINGS =====
     console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 1/4] === Syncing Members (users) ===`);
@@ -579,20 +578,19 @@ Deno.serve(async (req) => {
       }
     }
     
-    // GATE: Only proceed if Members completed
-    if (membersState.status !== 'completed') {
-      const currentState = await getState("customers");
-      if (currentState.status !== 'completed') {
-        console.log('[GATE] Members not complete, stopping here');
-        return new Response(JSON.stringify({ 
-          ok: true, 
-          phase: 1,
-          message: 'Waiting for Members to complete...' 
-        }), {
-          headers: { ...corsHeaders, "content-type": "application/json" }
-        });
-      }
+    // GATE: Re-fetch Members state to check completion
+    const freshMembersState = await getState("customers");
+    if (freshMembersState.status !== 'completed') {
+      console.log('[GATE] Members not complete, stopping here');
+      return new Response(JSON.stringify({ 
+        ok: true, 
+        phase: 1,
+        message: 'Waiting for Members to complete...' 
+      }), {
+        headers: { ...corsHeaders, "content-type": "application/json" }
+      });
     }
+    console.log('[GATE] ✓ Members completed, proceeding to Phase 2');
     
     // ===== PHASE 2: SYNC BOOKINGS - MUST COMPLETE BEFORE ORDER LINES =====
     console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 2/4] === Syncing Bookings ===`);
@@ -685,20 +683,19 @@ Deno.serve(async (req) => {
       }
     }
     
-    // GATE: Only proceed if Bookings completed
-    if (bookingsState.status !== 'completed') {
-      const currentState = await getState("bookings");
-      if (currentState.status !== 'completed') {
-        console.log('[GATE] Bookings not complete, stopping here');
-        return new Response(JSON.stringify({ 
-          ok: true, 
-          phase: 2,
-          message: 'Waiting for Bookings to complete...' 
-        }), {
-          headers: { ...corsHeaders, "content-type": "application/json" }
-        });
-      }
+    // GATE: Re-fetch Bookings state to check completion
+    const freshBookingsState = await getState("bookings");
+    if (freshBookingsState.status !== 'completed') {
+      console.log('[GATE] Bookings not complete, stopping here');
+      return new Response(JSON.stringify({ 
+        ok: true, 
+        phase: 2,
+        message: 'Waiting for Bookings to complete...' 
+      }), {
+        headers: { ...corsHeaders, "content-type": "application/json" }
+      });
     }
+    console.log('[GATE] ✓ Bookings completed, proceeding to Phase 3');
 
     // ===== PHASE 3: EXTRACT ORDER LINES FROM ALL BOOKINGS =====
     console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 3/4] === Extracting Order Lines from ALL Bookings ===`);
