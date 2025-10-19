@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.test-organizations]
 verify_jwt = false
+
+[functions.test-user-groups]
+verify_jwt = false
