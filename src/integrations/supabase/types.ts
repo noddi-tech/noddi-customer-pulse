@@ -480,7 +480,10 @@ export type Database = {
       }
     }
     Functions: {
-      [_ in never]: never
+      get_segment_counts: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never
