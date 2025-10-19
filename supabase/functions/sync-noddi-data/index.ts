@@ -545,6 +545,8 @@ Deno.serve(async (req) => {
         id: ug.id,
         name: ug.name || `User Group ${ug.id}`,
         org_id: ug.org?.id || null,
+        is_personal: ug.is_personal ?? null,
+        type: ug.type ?? null,
         created_at: ug.created_at,
         updated_at: ug.updated_at
       }));

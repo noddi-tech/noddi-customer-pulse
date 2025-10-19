@@ -378,22 +378,28 @@ export type Database = {
         Row: {
           created_at: string | null
           id: number
+          is_personal: boolean | null
           name: string | null
           org_id: number | null
+          type: string | null
           updated_at: string | null
         }
         Insert: {
           created_at?: string | null
           id: number
+          is_personal?: boolean | null
           name?: string | null
           org_id?: number | null
+          type?: string | null
           updated_at?: string | null
         }
         Update: {
           created_at?: string | null
           id?: number
+          is_personal?: boolean | null
           name?: string | null
           org_id?: number | null
+          type?: string | null
           updated_at?: string | null
         }
         Relationships: []
