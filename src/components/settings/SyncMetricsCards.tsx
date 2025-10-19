@@ -4,8 +4,10 @@ import { formatDistanceToNow } from "date-fns";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface SyncMetricsCardsProps {
-  customersCount: number;
-  customersTotal: number;
+  userGroupsActive: number;
+  userGroupsTotal: number;
+  userGroupsB2B: number;
+  userGroupsB2C: number;
   bookingsCount: number;
   bookingsTotal: number;
   bookingsWithUser: number;
@@ -16,8 +18,10 @@ interface SyncMetricsCardsProps {
 }
 
 export function SyncMetricsCards({
-  customersCount,
-  customersTotal,
+  userGroupsActive,
+  userGroupsTotal,
+  userGroupsB2B,
+  userGroupsB2C,
   bookingsCount,
   bookingsTotal,
   bookingsWithUser,
@@ -29,12 +33,13 @@ export function SyncMetricsCards({
   const orderLinesComplete = orderLines >= expectedOrderLines * 0.9;
   const metrics = [
     {
-      label: "Active Customers",
-      value: customersCount.toLocaleString(),
-      total: customersTotal,
+      label: "Active User Groups",
+      value: userGroupsActive.toLocaleString(),
+      total: userGroupsTotal,
       icon: Users,
       color: "text-blue-600 dark:text-blue-400",
-      tooltip: "Customers with at least one active booking (excludes cancelled/unable-to-complete)",
+      subtitle: `${userGroupsB2B} B2B, ${userGroupsB2C.toLocaleString()} B2C`,
+      tooltip: "Households/accounts with at least one active booking in the last 24 months",
     },
     {
       label: "Active Bookings",

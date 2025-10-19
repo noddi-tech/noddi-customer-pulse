@@ -104,7 +104,7 @@ export function SyncProgressBar({
                 </>
               ) : (
                 <>
-                  {inDb.toLocaleString()} order lines 
+                  {inDb.toLocaleString()} order lines
                   {total && currentPage && (
                     <span className="ml-2">
                       from <span className="font-semibold">{currentPage.toLocaleString()}</span> of {total.toLocaleString()} bookings

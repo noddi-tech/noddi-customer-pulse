@@ -8,7 +8,10 @@ export function useDatabaseCounts() {
       // Query both total and active counts using the business logic views
       const [
         customersTotal,
-        customersActive,
+        userGroupsTotal,
+        userGroupsActiveRaw,
+        userGroupsB2B,
+        userGroupsB2C,
         bookingsTotal,
         bookingsActive,
         bookingsWithUser,
@@ -17,7 +20,10 @@ export function useDatabaseCounts() {
         syncHealth
       ] = await Promise.all([
         supabase.from('customers').select('id', { count: 'exact', head: true }),
-        supabase.from('active_customers').select('id', { count: 'exact', head: true }),
+        supabase.from('user_groups').select('id', { count: 'exact', head: true }),
+        supabase.from('active_bookings').select('user_group_id', { count: 'exact', head: true }).not('user_group_id', 'is', null),
+        supabase.from('user_groups').select('id', { count: 'exact', head: true }).not('org_id', 'is', null),
+        supabase.from('user_groups').select('id', { count: 'exact', head: true }).is('org_id', null),
         supabase.from('bookings').select('id', { count: 'exact', head: true }),
         supabase.from('active_bookings').select('id', { count: 'exact', head: true }),
         supabase.from('active_bookings').select('id', { count: 'exact', head: true }).not('user_id', 'is', null),
@@ -36,11 +42,16 @@ export function useDatabaseCounts() {
       return {
         // Total counts (all data imported)
         customers_total: customersTotal.count || 0,
+        user_groups_total: userGroupsTotal.count || 0,
         bookings_total: bookingsTotalCount,
         order_lines_total: orderLinesTotalCount,
         
+        // Active user group counts (household-level)
+        user_groups_active: userGroupsActiveRaw.count || 0,
+        user_groups_b2b: userGroupsB2B.count || 0,
+        user_groups_b2c: userGroupsB2C.count || 0,
+        
         // Active counts (business logic filtered)
-        customers: customersActive.count || 0,
         bookings: bookingsActiveCount,
         bookings_with_user: bookingsWithUser.count || 0,
         order_lines: orderLinesActiveCount,

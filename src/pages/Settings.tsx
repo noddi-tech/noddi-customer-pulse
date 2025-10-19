@@ -382,8 +382,8 @@ export default function Settings() {
             const bookingsStatus = syncStatus?.find((s) => s.resource === "bookings");
             const orderLinesStatus = syncStatus?.find((s) => s.resource === "order_lines");
             
-            const customersProgress = customersStatus?.estimated_total && dbCounts?.customers
-              ? Math.min(100, (dbCounts.customers / customersStatus.estimated_total) * 100)
+            const customersProgress = customersStatus?.estimated_total && dbCounts?.customers_total
+              ? Math.min(100, (dbCounts.customers_total / customersStatus.estimated_total) * 100)
               : 0;
             const bookingsProgress = bookingsStatus?.estimated_total && dbCounts?.bookings
               ? Math.min(100, (dbCounts.bookings / bookingsStatus.estimated_total) * 100)
@@ -608,7 +608,7 @@ export default function Settings() {
                   orderLinesProgress={orderLinesProgress}
                   customersTotal={customersStatus?.estimated_total}
                   bookingsTotal={bookingsStatus?.estimated_total}
-                  customersInDb={dbCounts?.customers || 0}
+                  customersInDb={dbCounts?.customers_total || 0}
                   bookingsInDb={dbCounts?.bookings || 0}
                   orderLinesInDb={dbCounts?.order_lines || 0}
                   expectedOrderLines={Math.round(expectedOrderLines)}
@@ -624,7 +624,7 @@ export default function Settings() {
                 {/* Show sync complete alert when sync is done but segments not computed */}
                 {isSyncComplete && !lastComputeTime && (
                   <SyncCompleteAlert
-                    activeCustomers={dbCounts?.customers || 0}
+                    activeCustomers={dbCounts?.user_groups_active || 0}
                     activeBookings={dbCounts?.bookings || 0}
                     activeOrderLines={dbCounts?.order_lines || 0}
                   />
@@ -656,8 +656,8 @@ export default function Settings() {
                         <SyncProgressBar
                           resource="customers"
                           progress={customersProgress}
-                          total={customersStatus?.estimated_total || dbCounts?.customers}
-                          inDb={dbCounts?.customers || 0}
+                          total={customersStatus?.estimated_total || dbCounts?.customers_total}
+                          inDb={dbCounts?.customers_total || 0}
                           status={customersStatus?.status || "pending"}
                           syncMode={customersStatus?.sync_mode}
                           currentPage={customersStatus?.current_page}
@@ -696,8 +696,10 @@ export default function Settings() {
                     </div>
 
                     <SyncMetricsCards
-                      customersCount={dbCounts?.customers || 0}
-                      customersTotal={dbCounts?.customers_total || 0}
+                      userGroupsActive={dbCounts?.user_groups_active || 0}
+                      userGroupsTotal={dbCounts?.user_groups_total || 0}
+                      userGroupsB2B={dbCounts?.user_groups_b2b || 0}
+                      userGroupsB2C={dbCounts?.user_groups_b2c || 0}
                       bookingsCount={dbCounts?.bookings || 0}
                       bookingsTotal={dbCounts?.bookings_total || 0}
                       bookingsWithUser={dbCounts?.bookings_with_user || 0}
