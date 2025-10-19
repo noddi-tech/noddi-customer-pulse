@@ -602,8 +602,6 @@ export default function Settings() {
               </CardContent>
             </Card>
           )}
-
-                <DiagnosticPanel />
                 
                 <SyncStatusCard
                   customersProgress={customersProgress}
@@ -759,6 +757,8 @@ export default function Settings() {
               </Button>
             </CardContent>
           </Card>
+
+          <DiagnosticPanel />
         </TabsContent>
       </Tabs>
     </div>
