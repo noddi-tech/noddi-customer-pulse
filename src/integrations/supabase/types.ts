@@ -516,6 +516,10 @@ export type Database = {
       }
     }
     Functions: {
+      count_active_user_groups: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
       get_churn_timeline: {
         Args: Record<PropertyKey, never>
         Returns: {

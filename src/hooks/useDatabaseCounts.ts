@@ -21,7 +21,7 @@ export function useDatabaseCounts() {
       ] = await Promise.all([
         supabase.from('customers').select('id', { count: 'exact', head: true }),
         supabase.from('user_groups').select('id', { count: 'exact', head: true }),
-        supabase.from('active_bookings').select('user_group_id', { count: 'exact', head: true }).not('user_group_id', 'is', null),
+        supabase.rpc('count_active_user_groups'),
         supabase.from('user_groups').select('id', { count: 'exact', head: true }).eq('is_personal', true),
         supabase.from('user_groups').select('id', { count: 'exact', head: true }).eq('is_personal', false),
         supabase.from('bookings').select('id', { count: 'exact', head: true }),
@@ -47,7 +47,7 @@ export function useDatabaseCounts() {
         order_lines_total: orderLinesTotalCount,
         
         // Active user group counts (household-level)
-        user_groups_active: userGroupsActiveRaw.count || 0,
+        user_groups_active: (userGroupsActiveRaw.data as number) || 0,
         user_groups_b2b: userGroupsB2B.count || 0,
         user_groups_b2c: userGroupsB2C.count || 0,
         
