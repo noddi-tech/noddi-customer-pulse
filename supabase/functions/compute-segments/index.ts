@@ -138,6 +138,81 @@ serve(async (req) => {
 
         const margin = revenue24 * Number(th.default_margin_pct ?? 25) / 100;
 
+        // Track metrics per product category
+        const categoryMetrics: Record<string, {
+          frequency_24m: number;
+          revenue_24m: number;
+          margin_24m: number;
+          last_booking_at: Date | null;
+          recency_days: number | null;
+        }> = {};
+
+        // Initialize all known categories
+        const categories = ['WHEEL_CHANGE', 'WHEEL_STORAGE', 'CAR_WASH', 'CAR_REPAIR', 'SHOP_TIRE', 'SHOP_TIRE_GENERIC'];
+        for (const cat of categories) {
+          categoryMetrics[cat] = {
+            frequency_24m: 0,
+            revenue_24m: 0,
+            margin_24m: 0,
+            last_booking_at: null,
+            recency_days: null
+          };
+        }
+
+        // Process each booking's order lines for category metrics
+        for (const booking of bookings) {
+          const bookingDate = booking.started_at 
+            ? new Date(booking.started_at) 
+            : booking.date 
+              ? new Date(booking.date) 
+              : booking.completed_at 
+                ? new Date(booking.completed_at) 
+                : null;
+          
+          if (!bookingDate) continue;
+          
+          const bookingAge = (now.getTime() - bookingDate.getTime()) / 86400000;
+          
+          // Get booking_items from JSONB (if available in future)
+          // For now, use order_lines descriptions to infer categories
+          const lines = linesByBooking.get(booking.id) ?? [];
+          
+          for (const line of lines) {
+            const desc = String(line.description ?? "").toLowerCase();
+            const amount = Number(line.amount_gross || 0);
+            
+            // Skip discounts and fees (already tracked separately)
+            if (line.is_discount) continue;
+            
+            // Categorize based on description keywords
+            let category = null;
+            if (/dekkskift|tire change|wheel change|felgvask|balanser|tpms|ventil/i.test(desc)) {
+              category = 'WHEEL_CHANGE';
+            } else if (/dekkhotell|tire storage|wheel storage|oppbevaring/i.test(desc)) {
+              category = 'WHEEL_STORAGE';
+            } else if (/vask|wash|rengjøring|clean/i.test(desc)) {
+              category = 'CAR_WASH';
+            } else if (/reparasjon|repair|punkter/i.test(desc)) {
+              category = 'CAR_REPAIR';
+            } else if (/dekk|tire|tyre/i.test(desc)) {
+              category = 'SHOP_TIRE';
+            }
+            
+            if (category && categoryMetrics[category]) {
+              categoryMetrics[category].frequency_24m++;
+              categoryMetrics[category].revenue_24m += amount;
+              categoryMetrics[category].margin_24m += amount * (Number(th.default_margin_pct ?? 25) / 100);
+              
+              // Track most recent booking for this category
+              if (!categoryMetrics[category].last_booking_at || 
+                  bookingDate > categoryMetrics[category].last_booking_at!) {
+                categoryMetrics[category].last_booking_at = bookingDate;
+                categoryMetrics[category].recency_days = bookingAge;
+              }
+            }
+          }
+        }
+
         // Detect Dekkskift & last_dekkskift_at
         const allText = (bookings || []).flatMap((b) =>
           (linesByBooking.get(b.id) ?? []).map((l) => String(l.description ?? "")).join(" • ")
@@ -177,8 +252,22 @@ serve(async (req) => {
         const st = storageMap.get(userGroupMap.get(uid)!) ?? { active: false, ended_at: null };
         const storageActive = !!st.active;
 
-        // Lifecycle
-        const monthsSinceDekkskift = lastDekkskiftAt ? (now.getTime() - lastDekkskiftAt.getTime()) / (1000 * 60 * 60 * 24 * 30.4375) : Infinity;
+        // Calculate product-line relationship types
+        const productLineProfile = {
+          is_wheel_change_customer: categoryMetrics.WHEEL_CHANGE.frequency_24m > 0,
+          is_storage_customer: storageActive || categoryMetrics.WHEEL_STORAGE.frequency_24m > 0,
+          is_fleet_customer: categoryMetrics.CAR_WASH.frequency_24m > 2, // 3+ washes = fleet
+          is_tire_buyer: categoryMetrics.SHOP_TIRE.frequency_24m > 0,
+          is_multi_service: categories.filter(c => categoryMetrics[c].frequency_24m > 0).length >= 2,
+          
+          // Engagement depth
+          service_mix_count: categories.filter(c => categoryMetrics[c].frequency_24m > 0).length,
+          primary_category: categories.reduce((max, cat) => 
+            categoryMetrics[cat].revenue_24m > categoryMetrics[max].revenue_24m ? cat : max
+          , 'WHEEL_CHANGE')
+        };
+
+        // Calculate tenure
         const firstBookingAt = bookings.reduce((m: Date | null, b) => {
           const t = b.started_at 
             ? new Date(b.started_at) 
@@ -189,15 +278,40 @@ serve(async (req) => {
                 : null;
           return !t ? m : !m || t < m ? t : m;
         }, null);
+
+        const tenureMonths = firstBookingAt 
+          ? Math.floor((now.getTime() - firstBookingAt.getTime()) / (1000 * 60 * 60 * 24 * 30.4375))
+          : 0;
+
+        // Calculate seasonal status (Dekkskift-specific, now as supplementary indicator)
+        const wheelChangeRecency = categoryMetrics.WHEEL_CHANGE.recency_days;
+        const seasonalStatus = (() => {
+          if (wheelChangeRecency === null) return "No Tire Service History";
+          
+          const monthsSinceTireService = wheelChangeRecency / 30.4375;
+          if (monthsSinceTireService < 3) return "Recently Serviced";
+          if (monthsSinceTireService > 6) return "Due for Seasonal Change";
+          return "On Schedule";
+        })();
+
+        // SERVICE-AGNOSTIC LIFECYCLE: Based on ANY booking activity
+        const daysSinceLastBooking = recencyDays ?? Infinity;
+        const monthsSinceLastBooking = daysSinceLastBooking / 30.4375;
+        const daysSinceFirstBooking = firstBookingAt 
+          ? (now.getTime() - firstBookingAt.getTime()) / 86400000 
+          : Infinity;
+
         let lifecycle = "Churned";
 
-        if (firstBookingAt && (now.getTime() - firstBookingAt.getTime()) / 86400000 <= (th.new_days ?? 90)) {
+        // Lifecycle based on ANY booking activity
+        if (daysSinceFirstBooking <= (th.new_days ?? 90)) {
           lifecycle = "New";
         } else if (storageActive) {
-          lifecycle = "Active";
-        } else if (monthsSinceDekkskift <= (th.active_months ?? 7)) {
-          lifecycle = "Active";
-        } else if (monthsSinceDekkskift > (th.at_risk_from_months ?? 7) && monthsSinceDekkskift <= (th.at_risk_to_months ?? 9)) {
+          lifecycle = "Active";  // Storage customers = recurring relationship
+        } else if (monthsSinceLastBooking <= (th.active_months ?? 7)) {
+          lifecycle = "Active";  // ANY recent booking
+        } else if (monthsSinceLastBooking > (th.at_risk_from_months ?? 7) && 
+                   monthsSinceLastBooking <= (th.at_risk_to_months ?? 9)) {
           lifecycle = "At-risk";
         } else {
           lifecycle = "Churned";
@@ -218,7 +332,20 @@ serve(async (req) => {
           fully_paid_rate: bookings.length
             ? bookings.filter((b) => !!b.is_fully_paid).length / bookings.length
             : 0,
-          service_counts: null,
+          
+          // Product-line intelligence (stored in service_counts JSONB)
+          service_counts: {
+            // Category-specific metrics
+            category_metrics: categoryMetrics,
+            
+            // Customer profile
+            ...productLineProfile,
+            
+            // Supplementary indicators
+            seasonal_status: seasonalStatus,
+            tenure_months: tenureMonths
+          },
+          
           service_tags_all: allTags
         });
 
@@ -264,27 +391,89 @@ serve(async (req) => {
     
     console.log(`Total customers processed: ${totalProcessed}`)
 
-    // Value tiers: compute percentiles on margin_24m
-    const { data: margins } = await sb.from("features").select("user_id, margin_24m");
-    const vals = (margins || []).map((m) => Number(m.margin_24m || 0)).sort((a, b) => a - b);
-    const p = (q: number) => {
-      if (!vals.length) return 0;
-      const i = Math.floor(q * (vals.length - 1));
-      return vals[i];
-    };
-    const hi = p(Number((s?.value?.value_high_percentile ?? 0.8)));
-    const mid = p(Number((s?.value?.value_mid_percentile ?? 0.5)));
+    // RFM + STICKINESS VALUE TIERS
+    console.log("[value_tier] Computing RFM + Stickiness scores...");
 
-    const updates = (margins || []).map((m) => ({
-      user_id: m.user_id,
-      value_tier: m.margin_24m >= hi ? "High" : m.margin_24m >= mid ? "Mid" : "Low",
+    // Fetch all features for RFM calculation
+    const { data: allFeatures } = await sb
+      .from("features")
+      .select("user_id, recency_days, frequency_24m, margin_24m, service_counts");
+
+    if (!allFeatures || allFeatures.length === 0) {
+      console.log("[value_tier] No features found, skipping value tier calculation");
+      return new Response(JSON.stringify({ ok: true, users: totalProcessed }), {
+        headers: { ...corsHeaders, "content-type": "application/json" }
+      });
+    }
+
+    // Normalize RFM components (0-100 scale)
+    const recencyValues = allFeatures.map(f => f.recency_days ?? 999999);
+    const frequencyValues = allFeatures.map(f => f.frequency_24m ?? 0);
+    const monetaryValues = allFeatures.map(f => f.margin_24m ?? 0);
+
+    const maxRecency = Math.max(...recencyValues);
+    const maxFrequency = Math.max(...frequencyValues);
+    const maxMonetary = Math.max(...monetaryValues);
+
+    // Calculate weighted scores
+    const scoredCustomers = allFeatures.map(f => {
+      const serviceCounts = (f.service_counts as any) || {};
+      
+      // Normalize: recency is inverted (lower = better)
+      const recencyScore = maxRecency > 0 
+        ? ((maxRecency - (f.recency_days ?? maxRecency)) / maxRecency) * 100 
+        : 0;
+      
+      const frequencyScore = maxFrequency > 0 
+        ? ((f.frequency_24m ?? 0) / maxFrequency) * 100 
+        : 0;
+      
+      const monetaryScore = maxMonetary > 0 
+        ? ((f.margin_24m ?? 0) / maxMonetary) * 100 
+        : 0;
+      
+      // Weighted RFM: Recency=30%, Frequency=40%, Monetary=30%
+      const rfmScore = (recencyScore * 0.3) + (frequencyScore * 0.4) + (monetaryScore * 0.3);
+      
+      // Stickiness boosts
+      let stickinessBoost = 0;
+      if (serviceCounts.is_storage_customer) stickinessBoost += rfmScore * 0.25; // +25% for storage
+      if (serviceCounts.is_fleet_customer) stickinessBoost += rfmScore * 0.15;   // +15% for fleet
+      if (serviceCounts.is_multi_service) stickinessBoost += rfmScore * 0.10;    // +10% for multi-service
+      
+      const finalScore = rfmScore + stickinessBoost;
+      
+      return {
+        user_id: f.user_id,
+        score: finalScore,
+        rfm_components: { recencyScore, frequencyScore, monetaryScore, rfmScore, stickinessBoost }
+      };
+    });
+
+    // Sort by score and apply percentile-based tiers
+    scoredCustomers.sort((a, b) => b.score - a.score);
+
+    const highThreshold = Math.floor(scoredCustomers.length * 0.2);  // Top 20%
+    const midThreshold = Math.floor(scoredCustomers.length * 0.5);   // Next 30% (20-50%)
+
+    const tierUpdates = scoredCustomers.map((sc, index) => ({
+      user_id: sc.user_id,
+      value_tier: index < highThreshold ? "High" 
+                : index < midThreshold ? "Mid" 
+                : "Low",
       updated_at: new Date().toISOString()
     }));
-    
-    for (let i = 0; i < updates.length; i += 1000) {
-      await sb.from("segments").upsert(updates.slice(i, i + 1000), { onConflict: "user_id" });
+
+    // Batch upsert value tiers
+    for (let i = 0; i < tierUpdates.length; i += 1000) {
+      const batch = tierUpdates.slice(i, i + 1000);
+      const { error } = await sb.from("segments").upsert(batch, { onConflict: "user_id" });
+      if (error) {
+        console.error(`[value_tier] Error upserting batch ${i}-${i + 1000}:`, error);
+      }
     }
-    console.log(`Computed value tiers for ${updates.length} customers`);
+
+    console.log(`[value_tier] ✓ Updated ${tierUpdates.length} customers with RFM+stickiness tiers`);
 
     return new Response(
       JSON.stringify({ ok: true, users: totalProcessed }), 
