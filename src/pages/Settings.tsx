@@ -22,6 +22,7 @@ import { WhatsNextCallout } from "@/components/settings/WhatsNextCallout";
 import { SyncTimeline } from "@/components/settings/SyncTimeline";
 import { SyncCompleteAlert } from "@/components/settings/SyncCompleteAlert";
 import { SyncErrorAlert } from "@/components/settings/SyncErrorAlert";
+import { DiagnosticPanel } from "@/components/settings/DiagnosticPanel";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Info, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -602,6 +603,8 @@ export default function Settings() {
             </Card>
           )}
 
+                <DiagnosticPanel />
+                
                 <SyncStatusCard
                   customersProgress={customersProgress}
                   bookingsProgress={bookingsProgress}
