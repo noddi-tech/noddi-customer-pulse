@@ -67,3 +67,30 @@ export function useTestConnection() {
     },
   });
 }
+
+export function useResetDatabase() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("reset-database", {
+        body: { confirm: "DELETE" },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      const deletedCount = data.total_deleted || 0;
+      toast.success(
+        `Database reset complete! Deleted ${deletedCount.toLocaleString()} total records. Ready for fresh sync.`
+      );
+      queryClient.invalidateQueries({ queryKey: ["sync-status"] });
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      queryClient.invalidateQueries({ queryKey: ["database-counts"] });
+      queryClient.invalidateQueries({ queryKey: ["segment-counts"] });
+    },
+    onError: (error) => {
+      toast.error(`Database reset failed: ${error.message}`);
+    },
+  });
+}

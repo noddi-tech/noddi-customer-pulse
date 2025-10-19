@@ -5,8 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSettings } from "@/hooks/segmentation";
-import { useSyncNow, useComputeSegments, useTestConnection } from "@/hooks/edgeFunctions";
+import { useSyncNow, useComputeSegments, useTestConnection, useResetDatabase } from "@/hooks/edgeFunctions";
 import { toast } from "sonner";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useSyncStatus } from "@/hooks/segmentation";
 import { useQueryClient } from "@tanstack/react-query";
@@ -37,7 +38,11 @@ export default function Settings() {
   const syncMutation = useSyncNow();
   const computeMutation = useComputeSegments();
   const testMutation = useTestConnection();
+  const resetDatabaseMutation = useResetDatabase();
   const queryClient = useQueryClient();
+  
+  const [confirmDeleteText, setConfirmDeleteText] = useState("");
+  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
   
   // Track compute-specific state
   const [isComputingSegments, setIsComputingSegments] = useState(false);
@@ -759,6 +764,97 @@ export default function Settings() {
           </Card>
 
           <DiagnosticPanel />
+          
+          {/* Danger Zone */}
+          <Card className="border-destructive">
+            <CardHeader>
+              <CardTitle className="text-destructive flex items-center gap-2">
+                <AlertCircle className="h-5 w-5" />
+                Danger Zone
+              </CardTitle>
+              <CardDescription>
+                Irreversible actions that permanently delete data
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Complete Database Reset</AlertTitle>
+                <AlertDescription>
+                  This will permanently delete ALL synced data from your database:
+                  <ul className="list-disc list-inside mt-2 space-y-1">
+                    <li>All customers ({(dbCounts?.customers_total || 0).toLocaleString()})</li>
+                    <li>All bookings ({(dbCounts?.bookings || 0).toLocaleString()})</li>
+                    <li>All order lines ({(dbCounts?.order_lines || 0).toLocaleString()})</li>
+                    <li>All user groups ({(dbCounts?.user_groups_total || 0).toLocaleString()})</li>
+                    <li>All features and segments</li>
+                  </ul>
+                  <p className="mt-2 font-semibold">You will need to run a full sync afterward to repopulate the database.</p>
+                </AlertDescription>
+              </Alert>
+
+              <AlertDialog open={isResetDialogOpen} onOpenChange={setIsResetDialogOpen}>
+                <AlertDialogTrigger asChild>
+                  <Button 
+                    variant="destructive" 
+                    disabled={resetDatabaseMutation.isPending}
+                    onClick={() => setConfirmDeleteText("")}
+                  >
+                    {resetDatabaseMutation.isPending ? "Resetting..." : "Complete Database Reset"}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+                      <AlertCircle className="h-5 w-5" />
+                      Are you absolutely sure?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription className="space-y-3">
+                      <p className="font-semibold">This action cannot be undone.</p>
+                      <p>
+                        This will permanently delete all synced data including:
+                      </p>
+                      <ul className="list-disc list-inside space-y-1">
+                        <li>{(dbCounts?.customers_total || 0).toLocaleString()} customers</li>
+                        <li>{(dbCounts?.bookings || 0).toLocaleString()} bookings</li>
+                        <li>{(dbCounts?.order_lines || 0).toLocaleString()} order lines</li>
+                        <li>{(dbCounts?.user_groups_total || 0).toLocaleString()} user groups</li>
+                        <li>All features and segments</li>
+                      </ul>
+                      <p className="mt-4">
+                        Type <span className="font-mono font-bold">DELETE</span> to confirm:
+                      </p>
+                      <Input
+                        value={confirmDeleteText}
+                        onChange={(e) => setConfirmDeleteText(e.target.value)}
+                        placeholder="Type DELETE to confirm"
+                        className="font-mono"
+                      />
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setConfirmDeleteText("")}>
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      disabled={confirmDeleteText !== "DELETE" || resetDatabaseMutation.isPending}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (confirmDeleteText === "DELETE") {
+                          resetDatabaseMutation.mutate();
+                          setIsResetDialogOpen(false);
+                          setConfirmDeleteText("");
+                        }
+                      }}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      {resetDatabaseMutation.isPending ? "Resetting..." : "Confirm Reset"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
