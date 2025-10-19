@@ -65,6 +65,13 @@ export type Database = {
             foreignKeyName: "bookings_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "active_customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bookings_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "customers"
             referencedColumns: ["id"]
           },
@@ -160,6 +167,13 @@ export type Database = {
             foreignKeyName: "features_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: true
+            referencedRelation: "active_customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "features_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
             referencedRelation: "customers"
             referencedColumns: ["id"]
           },
@@ -210,6 +224,13 @@ export type Database = {
             foreignKeyName: "order_lines_booking_id_fkey"
             columns: ["booking_id"]
             isOneToOne: false
+            referencedRelation: "active_bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_lines_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
             referencedRelation: "bookings"
             referencedColumns: ["id"]
           },
@@ -241,6 +262,13 @@ export type Database = {
           value_tier?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "segments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "active_customers"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "segments_user_id_fkey"
             columns: ["user_id"]
@@ -342,7 +370,114 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      active_bookings: {
+        Row: {
+          booking_items: Json | null
+          completed_at: string | null
+          date: string | null
+          id: number | null
+          is_cancelled: boolean | null
+          is_fully_paid: boolean | null
+          is_fully_unable_to_complete: boolean | null
+          is_partially_unable_to_complete: boolean | null
+          started_at: string | null
+          status_label: string | null
+          updated_at: string | null
+          user_group_id: number | null
+          user_id: number | null
+        }
+        Insert: {
+          booking_items?: Json | null
+          completed_at?: string | null
+          date?: string | null
+          id?: number | null
+          is_cancelled?: boolean | null
+          is_fully_paid?: boolean | null
+          is_fully_unable_to_complete?: boolean | null
+          is_partially_unable_to_complete?: boolean | null
+          started_at?: string | null
+          status_label?: string | null
+          updated_at?: string | null
+          user_group_id?: number | null
+          user_id?: number | null
+        }
+        Update: {
+          booking_items?: Json | null
+          completed_at?: string | null
+          date?: string | null
+          id?: number | null
+          is_cancelled?: boolean | null
+          is_fully_paid?: boolean | null
+          is_fully_unable_to_complete?: boolean | null
+          is_partially_unable_to_complete?: boolean | null
+          started_at?: string | null
+          status_label?: string | null
+          updated_at?: string | null
+          user_group_id?: number | null
+          user_id?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bookings_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "active_customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bookings_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      active_customers: {
+        Row: {
+          created_at: string | null
+          email: string | null
+          first_name: string | null
+          id: number | null
+          language_code: string | null
+          last_name: string | null
+          phone: string | null
+          updated_at: string | null
+          user_group_id: number | null
+        }
+        Relationships: []
+      }
+      active_order_lines: {
+        Row: {
+          amount_gross: number | null
+          amount_vat: number | null
+          booking_id: number | null
+          created_at: string | null
+          currency: string | null
+          description: string | null
+          id: string | null
+          is_delivery_fee: boolean | null
+          is_discount: boolean | null
+          quantity: number | null
+          sales_item_id: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_lines_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "active_bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_lines_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       [_ in never]: never
