@@ -327,6 +327,8 @@ export type Database = {
         Row: {
           auto_sync_enabled: boolean | null
           current_page: number | null
+          display_count: number | null
+          display_total: number | null
           error_message: string | null
           estimated_completion_at: string | null
           estimated_total: number | null
@@ -343,6 +345,8 @@ export type Database = {
         Insert: {
           auto_sync_enabled?: boolean | null
           current_page?: number | null
+          display_count?: number | null
+          display_total?: number | null
           error_message?: string | null
           estimated_completion_at?: string | null
           estimated_total?: number | null
@@ -359,6 +363,8 @@ export type Database = {
         Update: {
           auto_sync_enabled?: boolean | null
           current_page?: number | null
+          display_count?: number | null
+          display_total?: number | null
           error_message?: string | null
           estimated_completion_at?: string | null
           estimated_total?: number | null
