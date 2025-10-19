@@ -33,8 +33,17 @@ export function SyncProgressBar({
     // If status is 'completed' or 'success', show 100%
     if (status === 'completed' || status === 'success') return 100;
 
-    // For order_lines, compare against total_records (bookings count) if no estimated_total
-    // For other resources, use estimated total from API if available
+    // For order_lines, use currentPage (max_id_seen) vs total bookings
+    // For other resources, use rows fetched vs estimated total
+    if (resource === 'order_lines') {
+      // currentPage is max_id_seen (last booking processed)
+      const calculated = total && total > 0 && currentPage
+        ? Math.round((currentPage / total) * 100)
+        : progress;
+      return Math.min(100, calculated);
+    }
+
+    // For API resources (customers, bookings)
     const calculated = total && total > 0 
       ? Math.round((inDb / total) * 100) 
       : progress;
@@ -77,15 +86,24 @@ export function SyncProgressBar({
 
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>
-          {inDb.toLocaleString()} {total && `of ${total.toLocaleString()}`}
-          {syncMode === "full" && currentPage !== undefined && total && total > 0 && (
-            <span className="ml-2 text-blue-600 dark:text-blue-400">
-              {/* PART 2: Fix page number display - different for order_lines vs API resources */}
-              {resource === "order_lines" 
-                ? `(Processing batch ${currentPage})`
-                : `(Page ${currentPage}/${Math.ceil(total / 100)})`
-              }
-            </span>
+          {resource === "order_lines" ? (
+            <>
+              {inDb.toLocaleString()} order lines 
+              {total && currentPage && (
+                <span className="ml-2">
+                  from <span className="font-semibold">{currentPage.toLocaleString()}</span> of {total.toLocaleString()} bookings
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              {inDb.toLocaleString()} {total && `of ${total.toLocaleString()}`}
+              {syncMode === "full" && currentPage !== undefined && total && total > 0 && (
+                <span className="ml-2 text-blue-600 dark:text-blue-400">
+                  (Page {currentPage}/{Math.ceil(total / 100)})
+                </span>
+              )}
+            </>
           )}
         </span>
         <div className="flex flex-col items-end gap-0.5">

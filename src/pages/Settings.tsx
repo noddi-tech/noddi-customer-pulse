@@ -685,16 +685,15 @@ export default function Settings() {
                     </div>
 
                     <SyncMetricsCards
-                      customersTotal={dbCounts?.customers || 0}
-                      bookingsTotal={dbCounts?.bookings || 0}
+                      customersCount={dbCounts?.customers || 0}
+                      customersTotal={dbCounts?.customers_total || 0}
+                      bookingsCount={dbCounts?.bookings || 0}
+                      bookingsTotal={dbCounts?.bookings_total || 0}
                       bookingsWithUser={dbCounts?.bookings_with_user || 0}
                       orderLines={dbCounts?.order_lines || 0}
+                      orderLinesTotal={dbCounts?.order_lines_total || 0}
                       expectedOrderLines={Math.round(expectedOrderLines)}
-                      lastSyncAt={
-                        customersStatus?.last_run_at
-                          ? new Date(customersStatus.last_run_at)
-                          : undefined
-                      }
+                      lastSync={customersStatus?.last_run_at || null}
                     />
 
                     <SyncActionButtons
