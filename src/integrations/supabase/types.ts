@@ -128,8 +128,8 @@ export type Database = {
           service_counts: Json | null
           service_tags_all: Json | null
           storage_active: boolean | null
-          user_group_id: number | null
-          user_id: number
+          user_group_id: number
+          user_id: number | null
         }
         Insert: {
           computed_at?: string | null
@@ -145,8 +145,8 @@ export type Database = {
           service_counts?: Json | null
           service_tags_all?: Json | null
           storage_active?: boolean | null
-          user_group_id?: number | null
-          user_id: number
+          user_group_id: number
+          user_id?: number | null
         }
         Update: {
           computed_at?: string | null
@@ -162,21 +162,21 @@ export type Database = {
           service_counts?: Json | null
           service_tags_all?: Json | null
           storage_active?: boolean | null
-          user_group_id?: number | null
-          user_id?: number
+          user_group_id?: number
+          user_id?: number | null
         }
         Relationships: [
           {
             foreignKeyName: "features_user_id_fkey"
             columns: ["user_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "active_customers"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "features_user_id_fkey"
             columns: ["user_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "customers"
             referencedColumns: ["id"]
           },
@@ -245,8 +245,8 @@ export type Database = {
           previous_lifecycle: string | null
           tags: Json | null
           updated_at: string | null
-          user_group_id: number | null
-          user_id: number
+          user_group_id: number
+          user_id: number | null
           value_tier: string | null
         }
         Insert: {
@@ -254,8 +254,8 @@ export type Database = {
           previous_lifecycle?: string | null
           tags?: Json | null
           updated_at?: string | null
-          user_group_id?: number | null
-          user_id: number
+          user_group_id: number
+          user_id?: number | null
           value_tier?: string | null
         }
         Update: {
@@ -263,22 +263,22 @@ export type Database = {
           previous_lifecycle?: string | null
           tags?: Json | null
           updated_at?: string | null
-          user_group_id?: number | null
-          user_id?: number
+          user_group_id?: number
+          user_id?: number | null
           value_tier?: string | null
         }
         Relationships: [
           {
             foreignKeyName: "segments_user_id_fkey"
             columns: ["user_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "active_customers"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "segments_user_id_fkey"
             columns: ["user_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "customers"
             referencedColumns: ["id"]
           },
