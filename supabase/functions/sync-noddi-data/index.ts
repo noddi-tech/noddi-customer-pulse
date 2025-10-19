@@ -32,10 +32,10 @@ function toNum(v: any): number | null {
 async function getState(resource: string) {
   const { data } = await sb
     .from("sync_state")
-    .select("high_watermark, max_id_seen, rows_fetched, sync_mode, total_records, current_page")
+    .select("high_watermark, max_id_seen, rows_fetched, sync_mode, total_records, current_page, status")
     .eq("resource", resource)
     .maybeSingle();
-  return data ?? { high_watermark: null, max_id_seen: 0, rows_fetched: 0, sync_mode: 'initial', total_records: 0, current_page: 0 };
+  return data ?? { high_watermark: null, max_id_seen: 0, rows_fetched: 0, sync_mode: 'initial', total_records: 0, current_page: 0, status: 'pending' };
 }
 
 async function setState(resource: string, patch: Record<string, any>) {
@@ -177,7 +177,7 @@ async function upsertCustomers(rows: any[]) {
   }
 }
 
-// PHASE 2: Rewrite with correct user_id mapping and store booking_items
+// Upsert bookings - validate user_group_id exists, keep ALL bookings
 async function upsertBookings(rows: any[]) {
   if (!rows.length) return;
   
@@ -190,64 +190,54 @@ async function upsertBookings(rows: any[]) {
     console.log(`[bookings] Sample keys:`, Object.keys(sample).join(', '));
   }
   
-  // PART 2A FIX: Filter out orphaned bookings (skip bookings with missing customers)
-  const userIds = [...new Set(rows.map(r => {
-    const ug = r?.user_group ?? {};
-    return ug?.users && Array.isArray(ug.users) && ug.users.length > 0 ? ug.users[0]?.id : null;
-  }).filter(Boolean))];
-  
-  const { data: existingCustomers } = await sb
-    .from('customers')
+  // Check which user_group_ids exist in user_groups table
+  const userGroupIds = [...new Set(rows.map(r => r?.user_group?.id).filter(Boolean))];
+  const { data: existingUserGroups } = await sb
+    .from('user_groups')
     .select('id')
-    .in('id', userIds);
+    .in('id', userGroupIds);
   
-  const existingIds = new Set(existingCustomers?.map(c => c.id) || []);
+  const existingGroupIds = new Set(existingUserGroups?.map(ug => ug.id) || []);
   
-  const mapped = rows
-    .map((b: any) => {
-      const ug = b?.user_group ?? {};
-      const primaryUserId =
-        ug?.users && Array.isArray(ug.users) && ug.users.length > 0
-          ? ug.users[0]?.id
-          : null;
+  // Map all bookings - KEEP ALL, just log warnings
+  const mapped = rows.map((b: any) => {
+    const ug = b?.user_group ?? {};
+    const userGroupId = toNum(ug?.id);
+    const primaryUserId = ug?.users && Array.isArray(ug.users) && ug.users.length > 0
+      ? toNum(ug.users[0]?.id)
+      : null;
 
-      return {
-        id: toNum(b?.id),
-        user_group_id: toNum(ug?.id),
-        user_id: toNum(primaryUserId),
-        status_label: b?.status?.label ?? null,
-        started_at: b?.started_at ?? b?.estimated_service_start ?? null,
-        completed_at: b?.completed_at ?? null,
-        date: b?.date ?? null,
-        is_cancelled: Boolean(b?.is_cancelled),
-        is_fully_paid: b?.order?.is_fully_paid ?? null,
-        is_partially_unable_to_complete: Boolean(b?.is_partially_unable_to_complete),
-        is_fully_unable_to_complete: Boolean(b?.is_fully_unable_to_complete),
-        updated_at: b?.updated_at ?? null,
-        booking_items: b?.booking_items || [], // Store booking_items JSONB
-      };
-    })
-    .filter(b => {
-      if (!b.user_id || !existingIds.has(b.user_id)) {
-        console.warn(`[bookings] Skipping booking ${b.id}: customer ${b.user_id} not found`);
-        return false;
-      }
-      return true;
-    });
+    // Log warning for missing/invalid user_group_id
+    if (!userGroupId || !existingGroupIds.has(userGroupId)) {
+      console.warn(`[bookings] Warning: booking ${b.id} has missing/invalid user_group_id ${userGroupId}`);
+    }
 
-  if (mapped.length === 0) {
-    console.log(`[bookings] ⚠️ All ${rows.length} bookings skipped (orphaned)`);
-    return;
-  }
+    return {
+      id: toNum(b?.id),
+      user_group_id: userGroupId,
+      user_id: primaryUserId,
+      status_label: b?.status?.label ?? null,
+      started_at: b?.started_at ?? b?.estimated_service_start ?? null,
+      completed_at: b?.completed_at ?? null,
+      date: b?.date ?? null,
+      is_cancelled: Boolean(b?.is_cancelled),
+      is_fully_paid: b?.order?.is_fully_paid ?? null,
+      is_partially_unable_to_complete: Boolean(b?.is_partially_unable_to_complete),
+      is_fully_unable_to_complete: Boolean(b?.is_fully_unable_to_complete),
+      updated_at: b?.updated_at ?? null,
+      booking_items: b?.booking_items || [], // Store booking_items JSONB
+    };
+  });
 
+  // NO FILTERING - upsert ALL bookings
   const { error } = await sb.from('bookings').upsert(mapped, { onConflict: 'id' });
   if (error) {
     console.error('[bookings] Error upserting:', error);
     throw error;
   }
   
-  const skippedCount = rows.length - mapped.length;
-  console.log(`[bookings] ✓ Upserted ${mapped.length} bookings with booking_items${skippedCount > 0 ? ` (skipped ${skippedCount} orphaned)` : ''}`);
+  const warningCount = mapped.filter(b => !b.user_group_id || !existingGroupIds.has(b.user_group_id)).length;
+  console.log(`[bookings] ✓ Upserted ${mapped.length} bookings with booking_items${warningCount > 0 ? ` (${warningCount} with missing user_group)` : ''}`);
 }
 
 // Extract order lines from booking_items JSONB (passed directly from batch query)
@@ -385,398 +375,473 @@ Deno.serve(async (req) => {
     const functionStartTime = Date.now();
     const MAX_RUNTIME_MS = 8 * 60 * 1000; // 8 minutes (leave 2min buffer before 10min timeout)
     
-    const customersState = await getState("customers");
+    // Get all phase states
+    const userGroupsState = await getState("user_groups");
+    const membersState = await getState("customers");
     const bookingsState = await getState("bookings");
+    const orderLinesState = await getState("order_lines");
     
-    const customersSyncMode = customersState.sync_mode || 'initial';
-    const bookingsSyncMode = bookingsState.sync_mode || 'initial';
-    
-    // Bounded work per invocation (5 pages max to avoid timeouts)
-    const customersMaxPages = 5;
-    const bookingsMaxPages = 5;
-    
-    // Read starting page from database (resume from where we left off)
-    let customersCurrentPage = customersState.current_page || 0;
-    let bookingsCurrentPage = bookingsState.current_page || 0;
-    
-    console.log(`[PHASE 1] Customers (Contacts): ${customersSyncMode} mode, page ${customersCurrentPage}`);
-    console.log(`[PHASE 2] Bookings: ${bookingsSyncMode} mode, page ${bookingsCurrentPage}`);
-    
-    await setState("customers", { status: "running", error_message: null });
-    await setState("bookings", { status: "running", error_message: null });
+    console.log('[SYNC ORDER] Phase 0: User Groups → Phase 1: Members → Phase 2: Bookings → Phase 3: Order Lines');
+    console.log(`[STATUS] user_groups: ${userGroupsState.sync_mode || 'initial'} (${userGroupsState.status || 'pending'})`);
+    console.log(`[STATUS] members: ${membersState.sync_mode || 'initial'} (${membersState.status || 'pending'})`);
+    console.log(`[STATUS] bookings: ${bookingsState.sync_mode || 'initial'} (${bookingsState.status || 'pending'})`);
+    console.log(`[STATUS] order_lines: ${orderLinesState.status || 'pending'}`);
 
-    // Check timeout before starting
-    if (Date.now() - functionStartTime > MAX_RUNTIME_MS) {
-      console.log('[TIMEOUT] Function approaching time limit before Phase 1, exiting');
-      await setState("customers", { status: "pending", current_page: customersCurrentPage });
-      await setState("bookings", { status: "pending", current_page: bookingsCurrentPage });
-      return new Response(JSON.stringify({ ok: true, timeout: true }), {
-        headers: { ...corsHeaders, "content-type": "application/json" }
-      });
-    }
+    // ===== PHASE 0: SYNC USER GROUPS (PRIMARY CUSTOMERS) - MUST COMPLETE FIRST =====
+    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 0/4] === Syncing User Groups (Primary Customers) ===`);
     
-    // ===== PHASE 1: SYNC CUSTOMERS (INDIVIDUAL CONTACTS) =====
-    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 1] === Syncing Customers (Individual Contacts) ===`);
-    let usersFetched = 0;
-    let customerPages = 0;
-    let customersMaxIdSeen = customersState.max_id_seen || 0;
-    const customersSkippedPages: number[] = [];
-    
-    for await (const { rows, page_index, maxIdInPage, totalCount, skipped, skippedPages } of paged(
-      "/v1/users/", 
-      { page_size: 100 },
-      customersMaxPages,
-      customersState.max_id_seen || 0,
-      customersSyncMode,
-      customersCurrentPage, // Resume from saved page
-      customersState.high_watermark
-    )) {
-      if (skippedPages && skippedPages.length > 0) {
-        skippedPages.forEach(p => {
-          if (!customersSkippedPages.includes(p)) customersSkippedPages.push(p);
-        });
-      }
-      
-      if (customerPages === 0 && totalCount !== undefined) {
-        await setState("customers", { estimated_total: totalCount });
-      }
-      
-      if (!skipped) {
-        await upsertCustomers(rows);
-        usersFetched += rows.length;
-        customersMaxIdSeen = Math.max(customersMaxIdSeen, maxIdInPage);
-        
-        const maxUpdated = rows.reduce(
-          (m: string, r: any) => (r.updated_at > m ? r.updated_at : m), 
-          customersState.high_watermark ?? "1970-01-01"
-        );
-        
-        await setState("customers", { 
-          high_watermark: maxUpdated, 
-          max_id_seen: customersMaxIdSeen,
-          rows_fetched: usersFetched,
-        });
-        
-        console.log(`[PHASE 1] customers page ${page_index}: ${rows.length} rows`);
-      } else {
-        console.log(`[PHASE 1] customers page ${page_index}: SKIPPED (500 error)`);
-      }
-      
-      customerPages++;
-      customersCurrentPage = page_index + 1;
-      
-      // ALWAYS update current_page, even for skipped pages
-      await setState("customers", { 
-        current_page: customersCurrentPage,
-      });
-    }
-    
-    const customersReachedEnd = customerPages < customersMaxPages;
-    // Only update sync_mode, don't set status yet (will be set at end)
-    if (customersReachedEnd && customersSyncMode === 'initial') {
-      await setState("customers", { sync_mode: 'incremental' });
-    }
-    
-    // Log summary with skipped pages
-    if (customersSkippedPages.length > 0) {
-      console.warn(`[PHASE 1 SUMMARY] Customers sync completed WITH WARNINGS:`);
-      console.warn(`  ✓ Successful: ${usersFetched} customers synced`);
-      console.warn(`  ⚠ Skipped ${customersSkippedPages.length} pages due to 500 errors: [${customersSkippedPages.join(', ')}]`);
+    if (userGroupsState.status === 'completed') {
+      console.log('[PHASE 0] User Groups already completed, proceeding to Phase 1');
     } else {
-      console.log(`[PHASE 1] ✓ Customers complete: ${usersFetched} synced`);
-    }
-
-    // Check timeout before Phase 2
-    if (Date.now() - functionStartTime > MAX_RUNTIME_MS) {
-      console.log('[TIMEOUT] Function approaching time limit after Phase 1, exiting');
-      await setState("customers", { status: customersReachedEnd ? 'completed' : 'pending' });
-      await setState("bookings", { status: "pending", current_page: bookingsCurrentPage });
-      return new Response(JSON.stringify({ ok: true, timeout: true, usersFetched }), {
-        headers: { ...corsHeaders, "content-type": "application/json" }
-      });
-    }
-    
-    // ===== PHASE 2: SYNC BOOKINGS COMPLETELY (WITHOUT order_lines) =====
-    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 2] === Syncing Bookings ===`);
-    let bookingsFetched = 0;
-    let bookingPages = 0;
-    let bookingsMaxIdSeen = bookingsState.max_id_seen || 0;
-    const allBookingsForOrderLines: any[] = []; // Collect for Phase 3
-    const bookingsSkippedPages: number[] = [];
-    
-    for await (const { rows, page_index, maxIdInPage, totalCount, skipped, skippedPages } of paged(
-      "/v1/bookings/", 
-      { page_size: 100 },
-      bookingsMaxPages,
-      bookingsState.max_id_seen || 0,
-      bookingsSyncMode,
-      bookingsCurrentPage, // Resume from saved page
-      bookingsState.high_watermark
-    )) {
-      if (skippedPages && skippedPages.length > 0) {
-        skippedPages.forEach(p => {
-          if (!bookingsSkippedPages.includes(p)) bookingsSkippedPages.push(p);
-        });
-      }
+      await setState("user_groups", { status: "running", error_message: null });
       
-      if (bookingPages === 0 && totalCount !== undefined) {
-        await setState("bookings", { estimated_total: totalCount });
-      }
+      const userGroupsSyncMode = userGroupsState.sync_mode || 'initial';
+      const userGroupsStartPage = userGroupsState.current_page || 0;
+      const userGroupsMaxPages = 10; // Process 10 pages max per invocation
       
-      if (!skipped) {
-        await upsertBookings(rows); // Just bookings, no order_lines yet
-        allBookingsForOrderLines.push(...rows); // Save for Phase 3
-        bookingsFetched += rows.length;
-        bookingsMaxIdSeen = Math.max(bookingsMaxIdSeen, maxIdInPage);
+      let userGroupsFetched = 0;
+      let userGroupsPages = 0;
+      let userGroupsMaxIdSeen = userGroupsState.max_id_seen || 0;
+      
+      console.log(`[PHASE 0] Starting from page ${userGroupsStartPage}, mode: ${userGroupsSyncMode}`);
+      
+      for await (const { rows, page_index, maxIdInPage, totalCount } of paged(
+        "/v1/user-groups/",
+        { page_size: 100 },
+        userGroupsMaxPages,
+        userGroupsMaxIdSeen,
+        userGroupsSyncMode,
+        userGroupsStartPage,
+        userGroupsState.high_watermark
+      )) {
+        if (page_index === 0 && totalCount !== undefined) {
+          await setState("user_groups", { estimated_total: totalCount });
+        }
+        
+        const userGroupsData = rows.map((ug: any) => ({
+          id: ug.id,
+          name: ug.name || `User Group ${ug.id}`,
+          org_id: ug.org?.id || null,
+          is_personal: ug.is_personal ?? null,
+          type: ug.type ?? null,
+          created_at: ug.created_at,
+          updated_at: ug.updated_at
+        }));
+        
+        const { error: userGroupsErr } = await sb.from("user_groups").upsert(userGroupsData, { onConflict: "id" });
+        if (userGroupsErr) console.error("Error upserting user_groups:", userGroupsErr);
+        
+        userGroupsFetched += userGroupsData.length;
+        userGroupsPages++;
+        userGroupsMaxIdSeen = Math.max(userGroupsMaxIdSeen, maxIdInPage);
         
         const maxUpdated = rows.reduce(
-          (m: string, r: any) => (r.updated_at > m ? r.updated_at : m), 
-          bookingsState.high_watermark ?? "1970-01-01"
+          (m: string, r: any) => (r.updated_at > m ? r.updated_at : m),
+          userGroupsState.high_watermark ?? "1970-01-01"
         );
         
-        await setState("bookings", { 
+        await setState("user_groups", {
+          current_page: page_index + 1,
+          rows_fetched: userGroupsFetched,
+          max_id_seen: userGroupsMaxIdSeen,
           high_watermark: maxUpdated,
-          max_id_seen: bookingsMaxIdSeen,
-          rows_fetched: bookingsFetched,
+          status: 'running'
         });
         
-        console.log(`[PHASE 2] bookings page ${page_index}: ${rows.length} rows`);
-      } else {
-        console.log(`[PHASE 2] bookings page ${page_index}: SKIPPED (500 error)`);
+        console.log(`[PHASE 0] page ${page_index}: ${rows.length} user groups`);
       }
       
-      bookingPages++;
-      bookingsCurrentPage = page_index + 1;
+      const userGroupsReachedEnd = userGroupsPages < userGroupsMaxPages;
       
-      // ALWAYS update current_page, even for skipped pages
-      await setState("bookings", { 
-        current_page: bookingsCurrentPage,
-      });
+      if (userGroupsReachedEnd) {
+        await setState("user_groups", { 
+          status: 'completed',
+          sync_mode: 'incremental'
+        });
+        console.log(`[PHASE 0] ✓ User Groups COMPLETED: ${userGroupsFetched} synced`);
+      } else {
+        await setState("user_groups", { status: 'pending' });
+        console.log(`[PHASE 0] User Groups in progress, will resume next invocation`);
+        return new Response(JSON.stringify({ 
+          ok: true, 
+          phase: 0,
+          message: 'User Groups sync in progress...',
+          userGroupsFetched
+        }), {
+          headers: { ...corsHeaders, "content-type": "application/json" }
+        });
+      }
     }
     
-    const bookingsReachedEnd = bookingPages < bookingsMaxPages;
-    // Only update sync_mode, don't set status yet (will be set at end)
-    if (bookingsReachedEnd && bookingsSyncMode === 'initial') {
-      await setState("bookings", { sync_mode: 'incremental' });
+    // GATE: Only proceed if User Groups completed
+    if (userGroupsState.status !== 'completed') {
+      const currentState = await getState("user_groups");
+      if (currentState.status !== 'completed') {
+        console.log('[GATE] User Groups not complete, stopping here');
+        return new Response(JSON.stringify({ 
+          ok: true, 
+          phase: 0,
+          message: 'Waiting for User Groups to complete...' 
+        }), {
+          headers: { ...corsHeaders, "content-type": "application/json" }
+        });
+      }
     }
     
-    // Log summary with skipped pages
-    if (bookingsSkippedPages.length > 0) {
-      console.warn(`[PHASE 2 SUMMARY] Bookings sync completed WITH WARNINGS:`);
-      console.warn(`  ✓ Successful: ${bookingsFetched} bookings synced`);
-      console.warn(`  ⚠ Skipped ${bookingsSkippedPages.length} pages due to 500 errors: [${bookingsSkippedPages.join(', ')}]`);
+    // ===== PHASE 1: SYNC MEMBERS (INDIVIDUAL USERS) - MUST COMPLETE BEFORE BOOKINGS =====
+    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 1/4] === Syncing Members (users) ===`);
+    
+    if (membersState.status === 'completed') {
+      console.log('[PHASE 1] Members already completed, proceeding to Phase 2');
     } else {
-      console.log(`[PHASE 2] ✓ Bookings complete: ${bookingsFetched} synced`);
+      await setState("customers", { status: "running", error_message: null });
+      
+      const membersSyncMode = membersState.sync_mode || 'initial';
+      const membersCurrentPage = membersState.current_page || 0;
+      const membersMaxPages = 10;
+      
+      let membersFetched = 0;
+      let membersPages = 0;
+      let membersMaxIdSeen = membersState.max_id_seen || 0;
+      const membersSkippedPages: number[] = [];
+      
+      console.log(`[PHASE 1] Starting from page ${membersCurrentPage}, mode: ${membersSyncMode}`);
+    
+      for await (const { rows, page_index, maxIdInPage, totalCount, skipped, skippedPages } of paged(
+        "/v1/users/", 
+        { page_size: 100 },
+        membersMaxPages,
+        membersMaxIdSeen,
+        membersSyncMode,
+        membersCurrentPage,
+        membersState.high_watermark
+      )) {
+        if (skippedPages && skippedPages.length > 0) {
+          skippedPages.forEach(p => {
+            if (!membersSkippedPages.includes(p)) membersSkippedPages.push(p);
+          });
+        }
+        
+        if (membersPages === 0 && totalCount !== undefined) {
+          await setState("customers", { estimated_total: totalCount });
+        }
+        
+        if (!skipped) {
+          await upsertCustomers(rows);
+          membersFetched += rows.length;
+          membersMaxIdSeen = Math.max(membersMaxIdSeen, maxIdInPage);
+          
+          const maxUpdated = rows.reduce(
+            (m: string, r: any) => (r.updated_at > m ? r.updated_at : m), 
+            membersState.high_watermark ?? "1970-01-01"
+          );
+          
+          await setState("customers", { 
+            high_watermark: maxUpdated, 
+            max_id_seen: membersMaxIdSeen,
+            rows_fetched: membersFetched,
+            current_page: page_index + 1,
+            status: 'running'
+          });
+          
+          console.log(`[PHASE 1] members page ${page_index}: ${rows.length} rows`);
+        } else {
+          console.log(`[PHASE 1] members page ${page_index}: SKIPPED (500 error)`);
+        }
+        
+        membersPages++;
+      }
+      
+      const membersReachedEnd = membersPages < membersMaxPages;
+      
+      if (membersReachedEnd) {
+        await setState("customers", { 
+          status: 'completed',
+          sync_mode: 'incremental',
+          error_message: membersSkippedPages.length > 0 ? JSON.stringify({
+            type: "partial_failure",
+            message: `Sync completed with ${membersSkippedPages.length} pages skipped`,
+            skipped_pages: membersSkippedPages
+          }) : null
+        });
+        console.log(`[PHASE 1] ✓ Members COMPLETED: ${membersFetched} synced${membersSkippedPages.length > 0 ? ` (${membersSkippedPages.length} pages skipped)` : ''}`);
+      } else {
+        await setState("customers", { status: 'pending' });
+        console.log(`[PHASE 1] Members in progress, will resume next invocation`);
+        return new Response(JSON.stringify({ 
+          ok: true, 
+          phase: 1,
+          message: 'Members sync in progress...',
+          membersFetched
+        }), {
+          headers: { ...corsHeaders, "content-type": "application/json" }
+        });
+      }
+    }
+    
+    // GATE: Only proceed if Members completed
+    if (membersState.status !== 'completed') {
+      const currentState = await getState("customers");
+      if (currentState.status !== 'completed') {
+        console.log('[GATE] Members not complete, stopping here');
+        return new Response(JSON.stringify({ 
+          ok: true, 
+          phase: 1,
+          message: 'Waiting for Members to complete...' 
+        }), {
+          headers: { ...corsHeaders, "content-type": "application/json" }
+        });
+      }
+    }
+    
+    // ===== PHASE 2: SYNC BOOKINGS - MUST COMPLETE BEFORE ORDER LINES =====
+    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 2/4] === Syncing Bookings ===`);
+    
+    if (bookingsState.status === 'completed') {
+      console.log('[PHASE 2] Bookings already completed, proceeding to Phase 3');
+    } else {
+      await setState("bookings", { status: "running", error_message: null });
+      
+      const bookingsSyncMode = bookingsState.sync_mode || 'initial';
+      const bookingsCurrentPage = bookingsState.current_page || 0;
+      const bookingsMaxPages = 10;
+      
+      let bookingsFetched = 0;
+      let bookingPages = 0;
+      let bookingsMaxIdSeen = bookingsState.max_id_seen || 0;
+      const bookingsSkippedPages: number[] = [];
+      
+      console.log(`[PHASE 2] Starting from page ${bookingsCurrentPage}, mode: ${bookingsSyncMode}`);
+      
+      for await (const { rows, page_index, maxIdInPage, totalCount, skipped, skippedPages } of paged(
+        "/v1/bookings/", 
+        { page_size: 100 },
+        bookingsMaxPages,
+        bookingsMaxIdSeen,
+        bookingsSyncMode,
+        bookingsCurrentPage,
+        bookingsState.high_watermark
+      )) {
+        if (skippedPages && skippedPages.length > 0) {
+          skippedPages.forEach(p => {
+            if (!bookingsSkippedPages.includes(p)) bookingsSkippedPages.push(p);
+          });
+        }
+        
+        if (bookingPages === 0 && totalCount !== undefined) {
+          await setState("bookings", { estimated_total: totalCount });
+        }
+        
+        if (!skipped) {
+          await upsertBookings(rows);
+          bookingsFetched += rows.length;
+          bookingsMaxIdSeen = Math.max(bookingsMaxIdSeen, maxIdInPage);
+          
+          const maxUpdated = rows.reduce(
+            (m: string, r: any) => (r.updated_at > m ? r.updated_at : m), 
+            bookingsState.high_watermark ?? "1970-01-01"
+          );
+          
+          await setState("bookings", { 
+            high_watermark: maxUpdated,
+            max_id_seen: bookingsMaxIdSeen,
+            rows_fetched: bookingsFetched,
+            current_page: page_index + 1,
+            status: 'running'
+          });
+          
+          console.log(`[PHASE 2] bookings page ${page_index}: ${rows.length} rows`);
+        } else {
+          console.log(`[PHASE 2] bookings page ${page_index}: SKIPPED (500 error)`);
+        }
+        
+        bookingPages++;
+      }
+      
+      const bookingsReachedEnd = bookingPages < bookingsMaxPages;
+      
+      if (bookingsReachedEnd) {
+        await setState("bookings", { 
+          status: 'completed',
+          sync_mode: 'incremental',
+          error_message: bookingsSkippedPages.length > 0 ? JSON.stringify({
+            type: "partial_failure",
+            message: `Sync completed with ${bookingsSkippedPages.length} pages skipped`,
+            skipped_pages: bookingsSkippedPages
+          }) : null
+        });
+        console.log(`[PHASE 2] ✓ Bookings COMPLETED: ${bookingsFetched} synced${bookingsSkippedPages.length > 0 ? ` (${bookingsSkippedPages.length} pages skipped)` : ''}`);
+      } else {
+        await setState("bookings", { status: 'pending' });
+        console.log(`[PHASE 2] Bookings in progress, will resume next invocation`);
+        return new Response(JSON.stringify({ 
+          ok: true, 
+          phase: 2,
+          message: 'Bookings sync in progress...',
+          bookingsFetched
+        }), {
+          headers: { ...corsHeaders, "content-type": "application/json" }
+        });
+      }
+    }
+    
+    // GATE: Only proceed if Bookings completed
+    if (bookingsState.status !== 'completed') {
+      const currentState = await getState("bookings");
+      if (currentState.status !== 'completed') {
+        console.log('[GATE] Bookings not complete, stopping here');
+        return new Response(JSON.stringify({ 
+          ok: true, 
+          phase: 2,
+          message: 'Waiting for Bookings to complete...' 
+        }), {
+          headers: { ...corsHeaders, "content-type": "application/json" }
+        });
+      }
     }
 
-    // Check timeout before Phase 3
-    if (Date.now() - functionStartTime > MAX_RUNTIME_MS) {
-      console.log('[TIMEOUT] Function approaching time limit after Phase 2, exiting');
-      await setState("customers", { status: customersReachedEnd ? 'completed' : 'pending' });
-      await setState("bookings", { status: bookingsReachedEnd ? 'completed' : 'pending' });
-      return new Response(JSON.stringify({ ok: true, timeout: true, usersFetched, bookingsFetched }), {
-        headers: { ...corsHeaders, "content-type": "application/json" }
-      });
-    }
+    // ===== PHASE 3: EXTRACT ORDER LINES FROM ALL BOOKINGS =====
+    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 3/4] === Extracting Order Lines from ALL Bookings ===`);
     
-    // ===== PHASE 0: SYNC USER GROUPS (PRIMARY CUSTOMERS - first, before customers) =====
-    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 0] === Syncing User Groups (Primary Customers) ===`);
-    
-    const userGroupsState = await getState('user_groups');
-    const userGroupsSyncMode = userGroupsState.sync_mode || 'initial';
-    const userGroupsStartPage = userGroupsState.current_page || 0;
-    const userGroupsMaxId = userGroupsState.max_id_seen || 0;
-    const userGroupsHighWatermark = userGroupsState.high_watermark || null;
-    const userGroupsMaxPages = 999;
-    
-    let userGroupsFetched = 0;
-    let userGroupsPages = 0;
-    
-    const userGroupsGenerator = paged(
-      "/v1/user-groups/",
-      { page_size: 100 },
-      userGroupsMaxPages,
-      userGroupsMaxId,
-      userGroupsSyncMode,
-      userGroupsStartPage,
-      userGroupsHighWatermark
-    );
-    
-    for await (const { rows, page_index, maxIdInPage, totalCount } of userGroupsGenerator) {
-      if (!rows.length) break;
-      
-      const userGroupsData = rows.map((ug: any) => ({
-        id: ug.id,
-        name: ug.name || `User Group ${ug.id}`,
-        org_id: ug.org?.id || null,
-        is_personal: ug.is_personal ?? null,
-        type: ug.type ?? null,
-        created_at: ug.created_at,
-        updated_at: ug.updated_at
-      }));
-      
-      const { error: userGroupsErr } = await sb.from("user_groups").upsert(userGroupsData, { onConflict: "id" });
-      if (userGroupsErr) console.error("Error upserting user_groups:", userGroupsErr);
-      
-      userGroupsFetched += userGroupsData.length;
-      userGroupsPages = page_index;
-      
-      await setState("user_groups", {
-        current_page: page_index,
-        rows_fetched: userGroupsFetched,
-        max_id_seen: maxIdInPage,
-        total_records: totalCount || 0
-      });
-    }
-    
-    const userGroupsReachedEnd = userGroupsPages < userGroupsMaxPages;
-    if (userGroupsReachedEnd && userGroupsSyncMode === 'initial') {
-      await setState("user_groups", { sync_mode: 'incremental' });
-    }
-    
-    console.log(`[PHASE 2.5] ✓ User Groups complete: ${userGroupsFetched} synced`);
-
-    // ===== PHASE 3: SYNC ORDER LINES (Database-driven, fully resumable) =====
-    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 3] === Syncing Order Lines ===`);
-    
-    const orderLinesState = await getState('order_lines');
-    const batchSize = 50;
-    let totalOrderLinesExtracted = 0;
-    let totalBookingsProcessed = 0;
-    
-    // Use max_id_seen to track last processed booking_id (resumable across runs)
-    const lastProcessedBookingId = orderLinesState.max_id_seen || 0;
-    console.log(`[order_lines] Resuming from booking_id > ${lastProcessedBookingId}`);
-    
-    // Query database for bookings with items that haven't been processed yet
-    const { data: bookingsToProcess, error: bookingsQueryError } = await sb
-      .from('bookings')
-      .select('id, booking_items')
-      .not('booking_items', 'is', null)
-      .gt('id', lastProcessedBookingId)
-      .order('id', { ascending: true })
-      .limit(500); // Process up to 500 bookings per run
-    
-    if (bookingsQueryError) {
-      console.error('[order_lines] Error querying bookings:', bookingsQueryError);
-      await setState('order_lines', {
-        status: 'error',
-        error_message: `Failed to query bookings: ${bookingsQueryError.message}`,
-      });
-    } else if (!bookingsToProcess || bookingsToProcess.length === 0) {
-      console.log('[order_lines] No more bookings to process, all caught up');
-      await setState('order_lines', {
-        status: 'success',
-        progress_percentage: 100,
-      });
+    if (orderLinesState.status === 'completed') {
+      console.log('[PHASE 3] Order lines already extracted, proceeding to health check');
     } else {
-      const totalBookingsCount = bookingsToProcess.length;
-      console.log(`[order_lines] Found ${totalBookingsCount} bookings to process (id range: ${bookingsToProcess[0].id} - ${bookingsToProcess[totalBookingsCount - 1].id})`);
+      await setState("order_lines", { status: "running", error_message: null });
       
-      // Filter bookings that actually have items
-      const bookingsWithItems = bookingsToProcess.filter(b => 
-        Array.isArray(b.booking_items) && b.booking_items.length > 0
-      );
+      const batchSize = 100;
+      let totalOrderLinesExtracted = 0;
+      let totalBookingsProcessed = 0;
       
-      console.log(`[order_lines] ${bookingsWithItems.length} of ${totalBookingsCount} bookings have items`);
+      // Use max_id_seen to track last processed booking_id (resumable across runs)
+      const lastProcessedBookingId = orderLinesState.max_id_seen || 0;
+      console.log(`[order_lines] Resuming from booking_id > ${lastProcessedBookingId}`);
       
-      // Update state to running
-      await setState('order_lines', {
-        status: 'running',
-        total_records: bookingsWithItems.length,
-      });
+      // Get total count of ALL bookings in database for progress calculation
+      const { count: totalBookingsInDb } = await sb
+        .from('bookings')
+        .select('*', { count: 'exact', head: true });
       
-      // Process bookings in batches
-      const totalBatches = Math.ceil(bookingsWithItems.length / batchSize);
-      let currentBatch = 0;
-      let maxBookingIdProcessed = lastProcessedBookingId;
-      
-      console.log(`[order_lines] Processing ${totalBatches} batches of ${batchSize} bookings each`);
-      
-      while (currentBatch < totalBatches) {
-        // Check timeout before processing batch
-        if (Date.now() - functionStartTime > MAX_RUNTIME_MS) {
-          console.log(`[TIMEOUT] Saving order_lines progress at booking_id ${maxBookingIdProcessed}`);
+      // Query database for ALL bookings that haven't been processed yet
+      const { data: bookingsToProcess, error: bookingsQueryError } = await sb
+        .from('bookings')
+        .select('id, booking_items')
+        .gt('id', lastProcessedBookingId)
+        .order('id', { ascending: true })
+        .limit(500); // Process up to 500 bookings per run
+    
+      if (bookingsQueryError) {
+        console.error('[order_lines] Error querying bookings:', bookingsQueryError);
+        await setState('order_lines', {
+          status: 'error',
+          error_message: `Failed to query bookings: ${bookingsQueryError.message}`,
+        });
+      } else if (!bookingsToProcess || bookingsToProcess.length === 0) {
+        console.log('[order_lines] No more bookings to process, extraction complete');
+        await setState('order_lines', {
+          status: 'completed',
+          progress_percentage: 100,
+          estimated_total: totalBookingsInDb || 0
+        });
+        console.log(`[PHASE 3] ✓ Order lines extraction COMPLETED`);
+      } else {
+        const totalBookingsCount = bookingsToProcess.length;
+        console.log(`[order_lines] Found ${totalBookingsCount} bookings to process (id range: ${bookingsToProcess[0].id} - ${bookingsToProcess[totalBookingsCount - 1].id})`);
+        console.log(`[order_lines] Total bookings in DB: ${totalBookingsInDb || 'unknown'}`);
+        
+        // Process ALL bookings (don't filter by booking_items, we'll extract what we can)
+        const totalBatches = Math.ceil(totalBookingsCount / batchSize);
+        let currentBatch = 0;
+        let maxBookingIdProcessed = lastProcessedBookingId;
+        
+        console.log(`[order_lines] Processing ${totalBatches} batches of ${batchSize} bookings each`);
+        
+        while (currentBatch < totalBatches) {
+          // Check timeout before processing batch
+          if (Date.now() - functionStartTime > MAX_RUNTIME_MS) {
+            console.log(`[TIMEOUT] Saving order_lines progress at booking_id ${maxBookingIdProcessed}`);
+            await setState('order_lines', {
+              status: 'pending',
+              max_id_seen: maxBookingIdProcessed,
+              rows_fetched: totalOrderLinesExtracted,
+              estimated_total: totalBookingsInDb || 0
+            });
+            return new Response(JSON.stringify({ 
+              ok: true, 
+              phase: 3,
+              timeout: true, 
+              totalOrderLinesExtracted,
+              lastProcessedBookingId: maxBookingIdProcessed 
+            }), {
+              headers: { ...corsHeaders, "content-type": "application/json" }
+            });
+          }
+          
+          const batchStart = currentBatch * batchSize;
+          const batchEnd = Math.min((currentBatch + 1) * batchSize, totalBookingsCount);
+          const bookingsBatch = bookingsToProcess.slice(batchStart, batchEnd);
+          
+          console.log(`[order_lines] Batch ${currentBatch + 1}/${totalBatches}: Processing ${bookingsBatch.length} bookings`);
+          
+          // Extract order lines from this batch
+          const linesExtracted = await upsertOrderLinesFromDbBookings(bookingsBatch);
+          totalOrderLinesExtracted += linesExtracted;
+          totalBookingsProcessed += bookingsBatch.length;
+          
+          // Track highest booking_id in this batch
+          const batchMaxId = Math.max(...bookingsBatch.map(b => b.id));
+          maxBookingIdProcessed = Math.max(maxBookingIdProcessed, batchMaxId);
+          
+          currentBatch++;
+          
+          // Update progress
+          await setState('order_lines', {
+            max_id_seen: maxBookingIdProcessed,
+            rows_fetched: totalOrderLinesExtracted,
+            status: 'running',
+            estimated_total: totalBookingsInDb || 0
+          });
+          
+          console.log(`[order_lines] Batch ${currentBatch}/${totalBatches} complete: ${linesExtracted} lines extracted (${totalOrderLinesExtracted} total), max_id=${maxBookingIdProcessed}`);
+        }
+        
+        // Check if there are more bookings to process
+        const { count: remainingCount } = await sb
+          .from('bookings')
+          .select('*', { count: 'exact', head: true })
+          .gt('id', maxBookingIdProcessed);
+        
+        if (remainingCount && remainingCount > 0) {
+          console.log(`[order_lines] ${remainingCount} more bookings remaining, will continue next run`);
           await setState('order_lines', {
             status: 'pending',
             max_id_seen: maxBookingIdProcessed,
             rows_fetched: totalOrderLinesExtracted,
-            progress_percentage: Math.min(100, (currentBatch / totalBatches) * 100),
+            estimated_total: totalBookingsInDb || 0
           });
           return new Response(JSON.stringify({ 
             ok: true, 
-            timeout: true, 
-            totalOrderLinesExtracted,
-            lastProcessedBookingId: maxBookingIdProcessed 
+            phase: 3,
+            message: 'Order lines extraction in progress...',
+            totalOrderLinesExtracted 
           }), {
             headers: { ...corsHeaders, "content-type": "application/json" }
           });
+        } else {
+          console.log(`[order_lines] All bookings processed, extraction complete`);
+          await setState('order_lines', {
+            status: 'completed',
+            max_id_seen: maxBookingIdProcessed,
+            progress_percentage: 100,
+            rows_fetched: totalOrderLinesExtracted,
+            estimated_total: totalBookingsInDb || 0
+          });
+          console.log(`[PHASE 3] ✓ Order lines extraction COMPLETED: ${totalOrderLinesExtracted} lines from ${totalBookingsProcessed} bookings`);
         }
-        
-        const batchStart = currentBatch * batchSize;
-        const batchEnd = Math.min((currentBatch + 1) * batchSize, bookingsWithItems.length);
-        const bookingsBatch = bookingsWithItems.slice(batchStart, batchEnd);
-        
-        if (!bookingsBatch || bookingsBatch.length === 0) {
-          console.log(`[order_lines] No more bookings to process at batch ${currentBatch}`);
-          break;
-        }
-        
-        console.log(`[order_lines] Batch ${currentBatch + 1}/${totalBatches}: Processing ${bookingsBatch.length} bookings`);
-        
-        // Extract order lines from this batch
-        const linesExtracted = await upsertOrderLinesFromDbBookings(bookingsBatch);
-        totalOrderLinesExtracted += linesExtracted;
-        totalBookingsProcessed += bookingsBatch.length;
-        
-        // Track highest booking_id in this batch
-        const batchMaxId = Math.max(...bookingsBatch.map(b => b.id));
-        maxBookingIdProcessed = Math.max(maxBookingIdProcessed, batchMaxId);
-        
-        currentBatch++;
-        
-        // Update progress - track actual order lines extracted and last processed ID
-        const progressPct = Math.min(100, (currentBatch / totalBatches) * 100);
-        await setState('order_lines', {
-          max_id_seen: maxBookingIdProcessed,
-          rows_fetched: totalOrderLinesExtracted,
-          progress_percentage: progressPct,
-          status: 'running',
-        });
-        
-        console.log(`[order_lines] Batch ${currentBatch}/${totalBatches} complete: ${linesExtracted} lines extracted (${totalOrderLinesExtracted} total), max_id=${maxBookingIdProcessed}, ${progressPct.toFixed(1)}% done`);
       }
-      
-      // Check if there are more bookings to process
-      const { count: remainingCount } = await sb
-        .from('bookings')
-        .select('*', { count: 'exact', head: true })
-        .not('booking_items', 'is', null)
-        .gt('id', maxBookingIdProcessed);
-      
-      if (remainingCount && remainingCount > 0) {
-        console.log(`[order_lines] ${remainingCount} more bookings remaining, will continue next run`);
-        await setState('order_lines', {
-          status: 'pending',
-          max_id_seen: maxBookingIdProcessed,
-          rows_fetched: totalOrderLinesExtracted,
-          progress_percentage: 50, // Arbitrary - more work to do
-        });
-      } else {
-        console.log(`[order_lines] All bookings processed, marking complete`);
-        await setState('order_lines', {
-          status: 'success',
-          max_id_seen: maxBookingIdProcessed,
-          progress_percentage: 100,
-          rows_fetched: totalOrderLinesExtracted,
-        });
-      }
-      
-      console.log(`[PHASE 3] ✓ Order lines progress: ${totalOrderLinesExtracted} lines extracted from ${totalBookingsProcessed} bookings, last_id=${maxBookingIdProcessed}`);
     }
     
     // ===== PHASE 4: HEALTH CHECK =====
-    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 4] === Health Check ===`);
+    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 4/4] === Health Check ===`);
     const [customersCount, bookingsCount, orderLinesCount, bookingsWithUser] = await Promise.all([
       sb.from("customers").select("id", { count: "exact", head: true }),
       sb.from("bookings").select("id", { count: "exact", head: true }),
@@ -802,58 +867,31 @@ Deno.serve(async (req) => {
       updated_at: new Date().toISOString()
     });
 
-    // Reset status before final return - 'success' with warnings if applicable
-    if (customersSkippedPages.length > 0) {
-      await setState("customers", { 
-        status: 'success',
-        error_message: JSON.stringify({
-          type: "partial_failure",
-          message: `Sync completed with ${customersSkippedPages.length} pages skipped`,
-          skipped_pages: customersSkippedPages,
-          successful_records: usersFetched
-        })
-      });
-    } else {
-      await setState("customers", { 
-        status: customersReachedEnd ? 'success' : 'pending',
-        error_message: null
-      });
-    }
+    console.log("=== ALL PHASES COMPLETE ===\n");
     
-    if (bookingsSkippedPages.length > 0) {
-      await setState("bookings", { 
-        status: 'success',
-        error_message: JSON.stringify({
-          type: "partial_failure",
-          message: `Sync completed with ${bookingsSkippedPages.length} pages skipped`,
-          skipped_pages: bookingsSkippedPages,
-          successful_records: bookingsFetched
-        })
-      });
-    } else {
-      await setState("bookings", { 
-        status: bookingsReachedEnd ? 'success' : 'pending',
-        error_message: null
-      });
-    }
-
-    console.log("=== SYNC COMPLETE ===\n");
+    // Get final counts for reporting
+    const finalUserGroupsState = await getState("user_groups");
+    const finalMembersState = await getState("customers");
+    const finalBookingsState = await getState("bookings");
+    const finalOrderLinesState = await getState("order_lines");
     
     const healthReport = {
       ...health,
-      user_groups_synced: userGroupsFetched,
-      customers_synced: usersFetched,
-      bookings_synced: bookingsFetched,
-      order_lines_extracted: totalOrderLinesExtracted
+      user_groups_synced: finalUserGroupsState.rows_fetched || 0,
+      members_synced: finalMembersState.rows_fetched || 0,
+      bookings_synced: finalBookingsState.rows_fetched || 0,
+      order_lines_extracted: finalOrderLinesState.rows_fetched || 0
     };
 
     return new Response(
       JSON.stringify({ 
-        ok: true, 
-        userGroupsFetched,
-        usersFetched, 
-        bookingsFetched, 
-        orderLinesExtracted: totalOrderLinesExtracted,
+        ok: true,
+        phase: 4,
+        message: 'All sync phases complete',
+        userGroupsFetched: finalUserGroupsState.rows_fetched || 0,
+        membersFetched: finalMembersState.rows_fetched || 0,
+        bookingsFetched: finalBookingsState.rows_fetched || 0,
+        orderLinesExtracted: finalOrderLinesState.rows_fetched || 0,
         health: healthReport,
         deployment: DEPLOYMENT_VERSION 
       }), 

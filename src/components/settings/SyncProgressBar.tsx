@@ -30,8 +30,8 @@ export function SyncProgressBar({
 }: SyncProgressBarProps) {
   // Get display name for resources
   const getDisplayName = () => {
-    if (resource === 'user_groups') return 'User Groups (Customers)';
-    if (resource === 'customers') return 'Contacts (Individual Members)';
+    if (resource === 'user_groups') return 'User Groups (Primary Customers)';
+    if (resource === 'customers') return 'Members (users)';
     if (resource === 'bookings') return 'Bookings';
     if (resource === 'order_lines') return 'Order Lines';
     return resource;

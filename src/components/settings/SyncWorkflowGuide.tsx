@@ -27,9 +27,9 @@ export function SyncWorkflowGuide({
       title: "Sync Data",
       substeps: [
         { label: "User Groups (Primary Customers) synced", complete: userGroupsComplete },
-        { label: "Contacts (Individual Members) synced", complete: customersComplete },
+        { label: "Members (users) synced", complete: customersComplete },
         { label: "Bookings synced", complete: bookingsComplete },
-        { label: "Order lines synced", complete: orderLinesComplete },
+        { label: "Order lines extracted", complete: orderLinesComplete },
       ],
       complete: allDataSynced,
       active: isRunning && !allDataSynced,
