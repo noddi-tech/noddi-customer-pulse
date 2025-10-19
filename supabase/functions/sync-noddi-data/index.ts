@@ -494,10 +494,18 @@ Deno.serve(async (req) => {
           userGroupsState.high_watermark ?? "1970-01-01"
         );
         
+        const totalToSync = totalCount || (userGroupsState as any).estimated_total || 0;
+        const progressPct = totalToSync > 0 
+          ? Math.min(100, Math.round(((page_index + 1) * 100 / totalToSync) * 100))
+          : 0;
+        
         await setState("user_groups", {
           current_page: page_index + 1,
           rows_fetched: userGroupsFetched,
           max_id_seen: userGroupsMaxIdSeen,
+          progress_percentage: progressPct,
+          display_count: (page_index + 1) * 100,
+          display_total: totalToSync,
           high_watermark: maxUpdated,
           status: 'running'
         });
@@ -600,12 +608,20 @@ Deno.serve(async (req) => {
             membersState.high_watermark ?? "1970-01-01"
           );
           
+          const totalToSync = totalCount || (membersState as any).estimated_total || 0;
+          const progressPct = totalToSync > 0 
+            ? Math.min(100, Math.round(((page_index + 1) * 100 / totalToSync) * 100))
+            : 0;
+          
           await setState("customers", { 
             high_watermark: maxUpdated, 
             max_id_seen: membersMaxIdSeen,
             rows_fetched: membersFetched,
             current_page: page_index + 1,
-            status: 'running'
+            status: 'running',
+            progress_percentage: progressPct,
+            display_count: (page_index + 1) * 100,
+            display_total: totalToSync
           });
           
           console.log(`[PHASE 1] members page ${page_index}: ${rows.length} rows`);
@@ -705,12 +721,20 @@ Deno.serve(async (req) => {
             bookingsState.high_watermark ?? "1970-01-01"
           );
           
+          const totalToSync = totalCount || (bookingsState as any).estimated_total || 0;
+          const progressPct = totalToSync > 0 
+            ? Math.min(100, Math.round(((page_index + 1) * 100 / totalToSync) * 100))
+            : 0;
+          
           await setState("bookings", { 
-            high_watermark: maxUpdated,
+            high_watermark: maxUpdated, 
             max_id_seen: bookingsMaxIdSeen,
             rows_fetched: bookingsFetched,
             current_page: page_index + 1,
-            status: 'running'
+            status: 'running',
+            progress_percentage: progressPct,
+            display_count: (page_index + 1) * 100,
+            display_total: totalToSync
           });
           
           console.log(`[PHASE 2] bookings page ${page_index}: ${rows.length} rows`);
@@ -856,11 +880,18 @@ Deno.serve(async (req) => {
           currentBatch++;
           
           // Update progress
+          const progressPct = totalBookingsInDb && totalBookingsInDb > 0
+            ? Math.min(100, Math.round((totalBookingsProcessed / totalBookingsInDb) * 100))
+            : 0;
+          
           await setState('order_lines', {
             max_id_seen: maxBookingIdProcessed,
             rows_fetched: totalOrderLinesExtracted,
             status: 'running',
-            estimated_total: totalBookingsInDb || 0
+            estimated_total: totalBookingsInDb || 0,
+            progress_percentage: progressPct,
+            display_count: totalOrderLinesExtracted,
+            display_total: totalBookingsInDb
           });
           
           console.log(`[order_lines] Batch ${currentBatch}/${totalBatches} complete: ${linesExtracted} lines extracted (${totalOrderLinesExtracted} total), max_id=${maxBookingIdProcessed}`);

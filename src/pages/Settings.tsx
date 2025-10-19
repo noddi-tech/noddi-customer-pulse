@@ -392,15 +392,11 @@ export default function Settings() {
             const bookingsStatus = syncStatus?.find((s) => s.resource === "bookings");
             const orderLinesStatus = syncStatus?.find((s) => s.resource === "order_lines");
             
-            const userGroupsProgress = userGroupsStatus?.estimated_total && dbCounts?.user_groups_total
-              ? Math.min(100, (dbCounts.user_groups_total / userGroupsStatus.estimated_total) * 100)
-              : 0;
-            const customersProgress = customersStatus?.estimated_total && dbCounts?.customers_total
-              ? Math.min(100, (dbCounts.customers_total / customersStatus.estimated_total) * 100)
-              : 0;
-            const bookingsProgress = bookingsStatus?.estimated_total && dbCounts?.bookings
-              ? Math.min(100, (dbCounts.bookings / bookingsStatus.estimated_total) * 100)
-              : 0;
+            // Use backend-calculated progress percentages (scalable solution)
+            const userGroupsProgress = (userGroupsStatus as any)?.progress_percentage || 0;
+            const customersProgress = (customersStatus as any)?.progress_percentage || 0;
+            const bookingsProgress = (bookingsStatus as any)?.progress_percentage || 0;
+            const orderLinesProgress = (orderLinesStatus as any)?.progress_percentage || 0;
 
             // STEP 7: Fix Order Lines status - must be extracted from ALL bookings
             const expectedOrderLines = dbCounts?.bookings || 0;
@@ -408,12 +404,6 @@ export default function Settings() {
               orderLinesStatus?.status === "completed" && 
               bookingsStatus?.status === "completed" &&
               (dbCounts?.order_lines || 0) >= expectedOrderLines * 0.9; // At least 90% coverage
-            
-            const orderLinesProgress = orderLinesActuallyComplete 
-              ? 100
-              : expectedOrderLines > 0
-                ? Math.min(100, ((dbCounts?.order_lines || 0) / expectedOrderLines) * 100)
-                : 0;
 
             const isRunning = syncStatus?.some((s) => s.status === "running") ?? false;
             const hasError = syncStatus?.some((s) => s.status === "error") ?? false;
@@ -742,13 +732,13 @@ export default function Settings() {
                    <CardContent className="space-y-4">
                      {/* STEP 10: Only show progress bars for active/completed phases (sequential) */}
                      <div className="space-y-4">
-                       {/* Always show User Groups (Phase 0) */}
-                       <div ref={userGroupsProgress < 100 && isRunning ? setActivePhaseRef : null}>
-                         <SyncProgressBar
-                           resource="user_groups"
-                           progress={userGroupsProgress}
-                           total={userGroupsStatus?.estimated_total || dbCounts?.user_groups_total}
-                           inDb={dbCounts?.user_groups_total || 0}
+                        {/* Always show User Groups (Phase 0) */}
+                        <div ref={(userGroupsStatus as any)?.progress_percentage && (userGroupsStatus as any).progress_percentage < 100 && isRunning ? setActivePhaseRef : null}>
+                          <SyncProgressBar
+                            resource="user_groups"
+                            progress={(userGroupsStatus as any)?.progress_percentage || 0}
+                            total={(userGroupsStatus as any)?.display_total || userGroupsStatus?.estimated_total}
+                            inDb={(userGroupsStatus as any)?.display_count || dbCounts?.user_groups_total || 0}
                            status={userGroupsStatus?.status || "pending"}
                            syncMode={userGroupsStatus?.sync_mode}
                            currentPage={userGroupsStatus?.current_page}
@@ -756,14 +746,14 @@ export default function Settings() {
                          />
                        </div>
                        
-                       {/* Only show Members if User Groups is completed */}
-                       {userGroupsStatus?.status === 'completed' && (
-                         <div ref={customersProgress < 100 && userGroupsProgress >= 100 && isRunning ? setActivePhaseRef : null}>
-                           <SyncProgressBar
-                             resource="customers"
-                             progress={customersProgress}
-                             total={customersStatus?.estimated_total || dbCounts?.customers_total}
-                             inDb={dbCounts?.customers_total || 0}
+                        {/* Only show Members if User Groups is completed */}
+                        {userGroupsStatus?.status === 'completed' && (
+                          <div ref={(customersStatus as any)?.progress_percentage && (customersStatus as any).progress_percentage < 100 && isRunning ? setActivePhaseRef : null}>
+                            <SyncProgressBar
+                              resource="customers"
+                              progress={(customersStatus as any)?.progress_percentage || 0}
+                              total={(customersStatus as any)?.display_total || customersStatus?.estimated_total}
+                              inDb={(customersStatus as any)?.display_count || dbCounts?.customers_total || 0}
                              status={customersStatus?.status || "pending"}
                              syncMode={customersStatus?.sync_mode}
                              currentPage={customersStatus?.current_page}
@@ -772,14 +762,14 @@ export default function Settings() {
                          </div>
                        )}
                        
-                       {/* Only show Bookings if Members is completed */}
-                       {customersStatus?.status === 'completed' && (
-                         <div ref={bookingsProgress < 100 && customersProgress >= 100 && isRunning ? setActivePhaseRef : null}>
-                           <SyncProgressBar
-                             resource="bookings"
-                             progress={bookingsProgress}
-                             total={bookingsStatus?.estimated_total || dbCounts?.bookings}
-                             inDb={dbCounts?.bookings || 0}
+                        {/* Only show Bookings if Members is completed */}
+                        {customersStatus?.status === 'completed' && (
+                          <div ref={(bookingsStatus as any)?.progress_percentage && (bookingsStatus as any).progress_percentage < 100 && isRunning ? setActivePhaseRef : null}>
+                            <SyncProgressBar
+                              resource="bookings"
+                              progress={(bookingsStatus as any)?.progress_percentage || 0}
+                              total={(bookingsStatus as any)?.display_total || bookingsStatus?.estimated_total}
+                              inDb={(bookingsStatus as any)?.display_count || dbCounts?.bookings || 0}
                              status={bookingsStatus?.status || "pending"}
                              syncMode={bookingsStatus?.sync_mode}
                              currentPage={bookingsStatus?.current_page}
@@ -789,14 +779,14 @@ export default function Settings() {
                          </div>
                        )}
 
-                        {/* Only show Order Lines if Bookings is completed */}
-                        {bookingsStatus?.status === 'completed' && (
-                          <div ref={orderLinesProgress < 90 && bookingsProgress >= 100 && isRunning ? setActivePhaseRef : null}>
-                            <SyncProgressBar
-                              resource="order_lines"
-                              progress={orderLinesProgress}
-                              total={Math.round(expectedOrderLines)}
-                              inDb={dbCounts?.order_lines || 0}
+                         {/* Only show Order Lines if Bookings is completed */}
+                         {bookingsStatus?.status === 'completed' && (
+                           <div ref={(orderLinesStatus as any)?.progress_percentage && (orderLinesStatus as any).progress_percentage < 90 && isRunning ? setActivePhaseRef : null}>
+                             <SyncProgressBar
+                               resource="order_lines"
+                               progress={(orderLinesStatus as any)?.progress_percentage || 0}
+                               total={(orderLinesStatus as any)?.display_total || Math.round(expectedOrderLines)}
+                               inDb={(orderLinesStatus as any)?.display_count || dbCounts?.order_lines || 0}
                               status={orderLinesStatus?.status || "pending"}
                               syncMode={orderLinesStatus?.sync_mode}
                               currentPage={orderLinesStatus?.current_page}
