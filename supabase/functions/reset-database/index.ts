@@ -35,13 +35,13 @@ Deno.serve(async (req) => {
     // Truncate tables in order (respecting foreign key constraints)
     // Map each table to its primary/identifying column for deletion
     const tablesToTruncate = [
-      { name: 'segments', column: 'user_group_id' },
-      { name: 'features', column: 'user_group_id' }, 
-      { name: 'storage_status', column: 'user_group_id' },
-      { name: 'order_lines', column: 'id' },
-      { name: 'bookings', column: 'id' },
-      { name: 'customers', column: 'id' },
-      { name: 'user_groups', column: 'id' }
+      { name: 'segments', column: 'user_group_id', type: 'bigint' },
+      { name: 'features', column: 'user_group_id', type: 'bigint' }, 
+      { name: 'storage_status', column: 'user_group_id', type: 'bigint' },
+      { name: 'order_lines', column: 'id', type: 'uuid' },
+      { name: 'bookings', column: 'id', type: 'bigint' },
+      { name: 'customers', column: 'id', type: 'bigint' },
+      { name: 'user_groups', column: 'id', type: 'bigint' }
     ];
 
     for (const table of tablesToTruncate) {
@@ -51,11 +51,16 @@ Deno.serve(async (req) => {
       const { count } = await supabase.from(table.name).select('*', { count: 'exact', head: true });
       deletionCounts[table.name] = count || 0;
       
-      // Delete all records from the table using a column that exists
-      const { error: deleteError } = await supabase
-        .from(table.name)
-        .delete()
-        .gte(table.column, 0);
+      // Delete all records from the table using appropriate comparison for column type
+      const { error: deleteError } = table.type === 'uuid'
+        ? await supabase
+            .from(table.name)
+            .delete()
+            .neq(table.column, '00000000-0000-0000-0000-000000000000')
+        : await supabase
+            .from(table.name)
+            .delete()
+            .gte(table.column, 0);
       
       if (deleteError) {
         console.error(`Error deleting from ${table.name}:`, deleteError);

@@ -809,30 +809,28 @@ export default function Settings() {
                       <AlertCircle className="h-5 w-5" />
                       Are you absolutely sure?
                     </AlertDialogTitle>
-                    <AlertDialogDescription>
-                      <div className="space-y-3">
-                        <p className="font-semibold">This action cannot be undone.</p>
-                        <p>
-                          This will permanently delete all synced data including:
-                        </p>
-                        <ul className="list-disc list-inside space-y-1">
-                          <li>{(dbCounts?.customers_total || 0).toLocaleString()} customers</li>
-                          <li>{(dbCounts?.bookings || 0).toLocaleString()} bookings</li>
-                          <li>{(dbCounts?.order_lines || 0).toLocaleString()} order lines</li>
-                          <li>{(dbCounts?.user_groups_total || 0).toLocaleString()} user groups</li>
-                          <li>All features and segments</li>
-                        </ul>
-                        <p className="mt-4">
-                          Type <span className="font-mono font-bold">DELETE</span> to confirm:
-                        </p>
-                        <Input
-                          value={confirmDeleteText}
-                          onChange={(e) => setConfirmDeleteText(e.target.value)}
-                          placeholder="Type DELETE to confirm"
-                          className="font-mono"
-                        />
-                      </div>
-                    </AlertDialogDescription>
+                    <div className="space-y-3 text-sm text-muted-foreground">
+                      <p className="font-semibold">This action cannot be undone.</p>
+                      <p>
+                        This will permanently delete all synced data including:
+                      </p>
+                      <ul className="list-disc list-inside space-y-1">
+                        <li>{(dbCounts?.customers_total || 0).toLocaleString()} customers</li>
+                        <li>{(dbCounts?.bookings || 0).toLocaleString()} bookings</li>
+                        <li>{(dbCounts?.order_lines || 0).toLocaleString()} order lines</li>
+                        <li>{(dbCounts?.user_groups_total || 0).toLocaleString()} user groups</li>
+                        <li>All features and segments</li>
+                      </ul>
+                      <p className="mt-4">
+                        Type <span className="font-mono font-bold">DELETE</span> to confirm:
+                      </p>
+                      <Input
+                        value={confirmDeleteText}
+                        onChange={(e) => setConfirmDeleteText(e.target.value)}
+                        placeholder="Type DELETE to confirm"
+                        className="font-mono"
+                      />
+                    </div>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel onClick={() => setConfirmDeleteText("")}>
