@@ -199,45 +199,87 @@ async function upsertBookings(rows: any[]) {
   
   const existingGroupIds = new Set(existingUserGroups?.map(ug => ug.id) || []);
   
-  // Map all bookings - KEEP ALL, just log warnings
-  const mapped = rows.map((b: any) => {
-    const ug = b?.user_group ?? {};
-    const userGroupId = toNum(ug?.id);
-    const primaryUserId = ug?.users && Array.isArray(ug.users) && ug.users.length > 0
-      ? toNum(ug.users[0]?.id)
-      : null;
+  // Check which user_ids exist in customers table
+  const userIds = [...new Set(rows.flatMap(r => r?.user_group?.users || []).map(u => u?.id).filter(Boolean))];
+  const { data: existingUsers } = await sb
+    .from('customers')
+    .select('id')
+    .in('id', userIds);
+  
+  const existingUserIds = new Set(existingUsers?.map(u => u.id) || []);
+  
+  // Map all bookings - filter out ones with invalid user references
+  const validBookings = rows
+    .map((b: any) => {
+      const ug = b?.user_group ?? {};
+      const userGroupId = toNum(ug?.id);
+      const primaryUserId = ug?.users && Array.isArray(ug.users) && ug.users.length > 0
+        ? toNum(ug.users[0]?.id)
+        : null;
 
-    // Log warning for missing/invalid user_group_id
-    if (!userGroupId || !existingGroupIds.has(userGroupId)) {
-      console.warn(`[bookings] Warning: booking ${b.id} has missing/invalid user_group_id ${userGroupId}`);
+      // Validate foreign key references
+      if (!userGroupId || !existingGroupIds.has(userGroupId)) {
+        console.warn(`[bookings] Skipping booking ${b.id}: missing/invalid user_group_id ${userGroupId}`);
+        return null;
+      }
+      
+      if (primaryUserId && !existingUserIds.has(primaryUserId)) {
+        console.warn(`[bookings] Skipping booking ${b.id}: user_id ${primaryUserId} not found in customers table`);
+        return null;
+      }
+
+      return {
+        id: toNum(b?.id),
+        user_group_id: userGroupId,
+        user_id: primaryUserId,
+        status_label: b?.status?.label ?? null,
+        started_at: b?.started_at ?? b?.estimated_service_start ?? null,
+        completed_at: b?.completed_at ?? null,
+        date: b?.date ?? null,
+        is_cancelled: Boolean(b?.is_cancelled),
+        is_fully_paid: b?.order?.is_fully_paid ?? null,
+        is_partially_unable_to_complete: Boolean(b?.is_partially_unable_to_complete),
+        is_fully_unable_to_complete: Boolean(b?.is_fully_unable_to_complete),
+        updated_at: b?.updated_at ?? null,
+        booking_items: b?.booking_items || [], // Store booking_items JSONB
+      };
+    })
+    .filter((b): b is NonNullable<typeof b> => b !== null);
+
+  // Upsert valid bookings in batches
+  const BATCH_SIZE = 50;
+  let successCount = 0;
+  let failureCount = 0;
+
+  for (let i = 0; i < validBookings.length; i += BATCH_SIZE) {
+    const batch = validBookings.slice(i, i + BATCH_SIZE);
+    
+    try {
+      const { error } = await sb.from("bookings").upsert(batch, { onConflict: 'id' });
+      if (error) {
+        console.error(`[bookings] Batch ${i}-${i + batch.length} failed:`, error);
+        failureCount += batch.length;
+        
+        // Try inserting one-by-one to identify problematic records
+        for (const booking of batch) {
+          const { error: singleError } = await sb.from("bookings").upsert(booking, { onConflict: 'id' });
+          if (singleError) {
+            console.warn(`[bookings] Skipping booking ${booking.id}:`, singleError.message);
+          } else {
+            successCount++;
+          }
+        }
+      } else {
+        successCount += batch.length;
+      }
+    } catch (err) {
+      console.error(`[bookings] Batch error:`, err);
+      failureCount += batch.length;
     }
-
-    return {
-      id: toNum(b?.id),
-      user_group_id: userGroupId,
-      user_id: primaryUserId,
-      status_label: b?.status?.label ?? null,
-      started_at: b?.started_at ?? b?.estimated_service_start ?? null,
-      completed_at: b?.completed_at ?? null,
-      date: b?.date ?? null,
-      is_cancelled: Boolean(b?.is_cancelled),
-      is_fully_paid: b?.order?.is_fully_paid ?? null,
-      is_partially_unable_to_complete: Boolean(b?.is_partially_unable_to_complete),
-      is_fully_unable_to_complete: Boolean(b?.is_fully_unable_to_complete),
-      updated_at: b?.updated_at ?? null,
-      booking_items: b?.booking_items || [], // Store booking_items JSONB
-    };
-  });
-
-  // NO FILTERING - upsert ALL bookings
-  const { error } = await sb.from('bookings').upsert(mapped, { onConflict: 'id' });
-  if (error) {
-    console.error('[bookings] Error upserting:', error);
-    throw error;
   }
   
-  const warningCount = mapped.filter(b => !b.user_group_id || !existingGroupIds.has(b.user_group_id)).length;
-  console.log(`[bookings] ✓ Upserted ${mapped.length} bookings with booking_items${warningCount > 0 ? ` (${warningCount} with missing user_group)` : ''}`);
+  const skippedCount = rows.length - validBookings.length;
+  console.log(`[bookings] ✓ Upserted ${successCount}/${validBookings.length} valid bookings (${skippedCount} skipped, ${failureCount} failed)`);
 }
 
 // Extract order lines from booking_items JSONB (passed directly from batch query)
@@ -507,8 +549,17 @@ Deno.serve(async (req) => {
     } else {
       await setState("customers", { status: "running", error_message: null });
       
-      const membersSyncMode = membersState.sync_mode || 'initial';
-      const membersCurrentPage = membersState.current_page || 0;
+      // FIX #3: Force members to run in full mode if bookings are in full mode
+      // This ensures all user references exist before bookings are processed
+      let membersSyncMode = membersState.sync_mode || 'initial';
+      let membersCurrentPage = membersState.current_page || 0;
+      
+      if (bookingsState.sync_mode === 'full') {
+        console.log('[PHASE 1] Forcing full sync because bookings are in full mode');
+        membersSyncMode = 'full';
+        membersCurrentPage = 0;
+      }
+      
       const membersMaxPages = 10;
       
       let membersFetched = 0;
@@ -909,12 +960,20 @@ Deno.serve(async (req) => {
     
   } catch (e) {
     console.error("Sync error:", e);
-    await setState("customers", { status: "error", error_message: String(e) });
-    await setState("bookings", { status: "error", error_message: String(e) });
+    
+    // FIX #1: Properly serialize error message
+    const errorMessage = e instanceof Error 
+      ? e.message 
+      : typeof e === 'object' && e !== null
+        ? JSON.stringify(e)
+        : String(e);
+    
+    await setState("customers", { status: "error", error_message: errorMessage });
+    await setState("bookings", { status: "error", error_message: errorMessage });
     
     // Always return CORS headers on error
     return new Response(
-      JSON.stringify({ ok: false, error: String(e) }), 
+      JSON.stringify({ ok: false, error: errorMessage }), 
       { status: 500, headers: { ...corsHeaders, "content-type": "application/json" } }
     );
   }
