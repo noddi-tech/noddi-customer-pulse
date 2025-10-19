@@ -20,6 +20,7 @@ import { SyncWorkflowGuide } from "@/components/settings/SyncWorkflowGuide";
 import { SyncActionButtons } from "@/components/settings/SyncActionButtons";
 import { WhatsNextCallout } from "@/components/settings/WhatsNextCallout";
 import { SyncTimeline } from "@/components/settings/SyncTimeline";
+import { SyncCompleteAlert } from "@/components/settings/SyncCompleteAlert";
 import { SyncErrorAlert } from "@/components/settings/SyncErrorAlert";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Info, AlertCircle, CheckCircle2 } from "lucide-react";
@@ -460,9 +461,10 @@ export default function Settings() {
             }, [customersProgress, bookingsProgress, orderLinesProgress, isRunning]);
 
             // Determine What's Next callout type
-            const getWhatsNextType = (): "syncing" | "compute" | "complete" | "initial" => {
+            const getWhatsNextType = (): "syncing" | "compute" | "complete" | "initial" | "ready_to_compute" => {
               if (syncState === "initial") return "initial";
               if (syncState === "running" || syncState === "phase3-running") return "syncing";
+              if (syncState === "complete" && !lastComputeTime) return "ready_to_compute";
               if (syncState === "complete") return "compute";
               if (syncState === "computed") return "complete";
               return "initial";
@@ -618,6 +620,15 @@ export default function Settings() {
                   bookingsStatus={bookingsStatus}
                   orderLinesStatus={orderLinesStatus}
                 />
+
+                {/* Show sync complete alert when sync is done but segments not computed */}
+                {isSyncComplete && !lastComputeTime && (
+                  <SyncCompleteAlert
+                    activeCustomers={dbCounts?.customers || 0}
+                    activeBookings={dbCounts?.bookings || 0}
+                    activeOrderLines={dbCounts?.order_lines || 0}
+                  />
+                )}
 
                 <WhatsNextCallout type={getWhatsNextType()} />
 

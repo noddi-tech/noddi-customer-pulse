@@ -2,7 +2,7 @@ import { Lightbulb } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface WhatsNextCalloutProps {
-  type: "syncing" | "compute" | "complete" | "initial";
+  type: "syncing" | "compute" | "complete" | "initial" | "ready_to_compute";
 }
 
 export function WhatsNextCallout({ type }: WhatsNextCalloutProps) {
@@ -16,6 +16,11 @@ export function WhatsNextCallout({ type }: WhatsNextCalloutProps) {
       title: "💡 What's Next?",
       message: "Your data is syncing automatically every 2 minutes. You can leave this page and return later, or watch the real-time progress below.",
       bgClass: "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900",
+    },
+    ready_to_compute: {
+      title: "✅ Sync Complete - Ready for Analysis",
+      message: "All customer data has been imported successfully. The metrics above show your active customers (excluding cancelled/unable-to-complete bookings). Click 'Recompute Segments' to begin customer analysis.",
+      bgClass: "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-900",
     },
     compute: {
       title: "✅ Next Step: Compute Segments",

@@ -55,6 +55,7 @@ export function SyncProgressBar({
   const actualProgress = getActualProgress();
   const isComplete = actualProgress >= 100 || status === 'completed' || status === 'success';
   const isRunning = status === "running";
+  const isPendingButComplete = status === "pending" && inDb > 0 && total && total > 0 && inDb >= total * 0.9;
 
   const getBarColor = () => {
     if (isComplete) return "bg-green-500";
@@ -70,9 +71,14 @@ export function SyncProgressBar({
           {syncMode === "full" && (
             <Badge variant="destructive" className="text-xs">FULL SYNC</Badge>
           )}
+          {isPendingButComplete && (
+            <Badge variant="outline" className="text-xs text-green-600 dark:text-green-400 border-green-600 dark:border-green-400">
+              ✓ Complete - waiting for next sync
+            </Badge>
+          )}
         </div>
-        <span className={cn("font-semibold", isComplete && "text-green-600 dark:text-green-400")}>
-          {actualProgress}%
+        <span className={cn("font-semibold", (isComplete || isPendingButComplete) && "text-green-600 dark:text-green-400")}>
+          {isPendingButComplete ? 100 : actualProgress}%
         </span>
       </div>
 
@@ -88,11 +94,23 @@ export function SyncProgressBar({
         <span>
           {resource === "order_lines" ? (
             <>
-              {inDb.toLocaleString()} order lines 
-              {total && currentPage && (
-                <span className="ml-2">
-                  from <span className="font-semibold">{currentPage.toLocaleString()}</span> of {total.toLocaleString()} bookings
-                </span>
+              {isPendingButComplete ? (
+                <>
+                  Extracted <span className="font-semibold text-green-600 dark:text-green-400">{inDb.toLocaleString()}</span> lines 
+                  from {total?.toLocaleString()} bookings 
+                  <span className="ml-2 text-muted-foreground">
+                    (avg {total && total > 0 ? (inDb / total).toFixed(1) : '0'} per booking)
+                  </span>
+                </>
+              ) : (
+                <>
+                  {inDb.toLocaleString()} order lines 
+                  {total && currentPage && (
+                    <span className="ml-2">
+                      from <span className="font-semibold">{currentPage.toLocaleString()}</span> of {total.toLocaleString()} bookings
+                    </span>
+                  )}
+                </>
               )}
             </>
           ) : (
@@ -107,7 +125,7 @@ export function SyncProgressBar({
           )}
         </span>
         <div className="flex flex-col items-end gap-0.5">
-          {estimatedTime && estimatedTime > 0 && !isComplete && (
+          {estimatedTime && estimatedTime > 0 && !isComplete && !isPendingButComplete && (
             <span>~{Math.ceil(estimatedTime / 60)} min remaining</span>
           )}
           {lastRunAt && (
