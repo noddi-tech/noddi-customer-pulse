@@ -2,7 +2,7 @@ import { CheckCircle, AlertCircle, RefreshCw, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 
-type SyncState = "idle" | "syncing" | "complete" | "error" | "ready-to-compute" | "computing";
+type SyncState = "idle" | "syncing" | "complete" | "error" | "ready-to-compute" | "computing" | "completed-with-warnings";
 
 interface SyncStatusCardProps {
   customersProgress: number;
@@ -46,7 +46,13 @@ export function SyncStatusCard({
   // Determine overall sync state
   const getSyncState = (): SyncState => {
     if (isComputingSegments) return "computing";
-    if (hasError) return "error";
+    
+    // Check for partial failures (warnings)
+    const hasWarnings = 
+      (customersStatus?.error_message && customersStatus.error_message.includes('"type":"partial_failure"')) ||
+      (bookingsStatus?.error_message && bookingsStatus.error_message.includes('"type":"partial_failure"'));
+    
+    if (hasError && !hasWarnings) return "error";
     
     // Special case: order_lines "success" with 0 rows (bug indicator)
     if (orderLinesStatus?.status === "success" && orderLinesStatus.rows_fetched === 0) {
@@ -64,9 +70,13 @@ export function SyncStatusCard({
     
     // Check if all phases are complete
     const allPhasesComplete = customersProgress >= 100 && bookingsProgress >= 100 && orderLinesProgress >= 100;
-    if (allPhasesComplete && customersInDb > 0 && bookingsInDb > 0) return "ready-to-compute";
+    if (allPhasesComplete && customersInDb > 0 && bookingsInDb > 0) {
+      return hasWarnings ? "completed-with-warnings" : "ready-to-compute";
+    }
     
-    if (customersProgress > 0 || bookingsProgress > 0 || orderLinesProgress > 0) return "complete";
+    if (customersProgress > 0 || bookingsProgress > 0 || orderLinesProgress > 0) {
+      return hasWarnings ? "completed-with-warnings" : "complete";
+    }
     return "idle";
   };
 
@@ -126,6 +136,30 @@ export function SyncStatusCard({
           title: currentPhase,
           message: message + (lastRunAt ? ` | Last activity ${formatDistanceToNow(lastRunAt, { addSuffix: true })}` : ''),
           isStalled,
+        };
+      case "completed-with-warnings":
+        // Parse warnings to get details
+        let warningDetails = "";
+        try {
+          const customersError = customersStatus?.error_message ? JSON.parse(customersStatus.error_message) : null;
+          const bookingsError = bookingsStatus?.error_message ? JSON.parse(bookingsStatus.error_message) : null;
+          
+          const warnings = [];
+          if (customersError?.skipped_pages?.length > 0) {
+            warnings.push(`${customersError.skipped_pages.length} customer pages skipped`);
+          }
+          if (bookingsError?.skipped_pages?.length > 0) {
+            warnings.push(`${bookingsError.skipped_pages.length} booking pages skipped`);
+          }
+          warningDetails = warnings.length > 0 ? ` (${warnings.join(', ')})` : "";
+        } catch {}
+        
+        return {
+          icon: AlertCircle,
+          iconClass: "text-yellow-600 dark:text-yellow-500",
+          bgClass: "bg-yellow-50 dark:bg-yellow-950/30 border-yellow-200 dark:border-yellow-900",
+          title: "⚠️ Sync Completed with Warnings",
+          message: `${customersInDb.toLocaleString()} customers, ${bookingsInDb.toLocaleString()} bookings synced${warningDetails}`,
         };
       case "ready-to-compute":
         const needsCompute = !lastComputeTime || (customersProgress >= 100 && bookingsProgress >= 100);

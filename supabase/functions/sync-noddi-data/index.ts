@@ -62,6 +62,7 @@ async function* paged(
   let totalCount: number | undefined;
   let consecutiveFailures = 0;
   const MAX_CONSECUTIVE_FAILURES = 10;
+  const skippedPages: number[] = [];
   
   for (;;) {
     const queryParams: Record<string, string> = {
@@ -79,16 +80,17 @@ async function* paged(
     if (!res.ok) {
       const body = await res.text();
       if (res.status >= 500) {
+        skippedPages.push(page_index);
         consecutiveFailures++;
         console.warn(`[sync] page ${page_index} -> ${res.status}; skipping (consecutive failures: ${consecutiveFailures})`);
         
         if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
           console.error(`[sync] Too many consecutive failures (${consecutiveFailures}), stopping sync`);
-          throw new Error(`Too many consecutive 500 errors (${consecutiveFailures} pages failed)`);
+          throw new Error(`Too many consecutive 500 errors (${consecutiveFailures} pages failed). Skipped pages: [${skippedPages.join(', ')}]`);
         }
         
         // Yield skipped page so caller can update progress
-        yield { rows: [], page_index, maxIdInPage: 0, hasNewRecords: false, totalCount, skipped: true };
+        yield { rows: [], page_index, maxIdInPage: 0, hasNewRecords: false, totalCount, skipped: true, skippedPages: [...skippedPages] };
         page_index++;
         pagesProcessed++;
         
@@ -141,7 +143,7 @@ async function* paged(
       }
     }
     
-    yield { rows, page_index, maxIdInPage, hasNewRecords, totalCount, skipped: false };
+    yield { rows, page_index, maxIdInPage, hasNewRecords, totalCount, skipped: false, skippedPages: [...skippedPages] };
     page_index++;
     pagesProcessed++;
     
@@ -418,8 +420,9 @@ Deno.serve(async (req) => {
     let usersFetched = 0;
     let customerPages = 0;
     let customersMaxIdSeen = customersState.max_id_seen || 0;
+    const customersSkippedPages: number[] = [];
     
-    for await (const { rows, page_index, maxIdInPage, totalCount, skipped } of paged(
+    for await (const { rows, page_index, maxIdInPage, totalCount, skipped, skippedPages } of paged(
       "/v1/users/", 
       { page_size: 100 },
       customersMaxPages,
@@ -428,6 +431,12 @@ Deno.serve(async (req) => {
       customersCurrentPage, // Resume from saved page
       customersState.high_watermark
     )) {
+      if (skippedPages && skippedPages.length > 0) {
+        skippedPages.forEach(p => {
+          if (!customersSkippedPages.includes(p)) customersSkippedPages.push(p);
+        });
+      }
+      
       if (customerPages === 0 && totalCount !== undefined) {
         await setState("customers", { estimated_total: totalCount });
       }
@@ -468,7 +477,14 @@ Deno.serve(async (req) => {
       await setState("customers", { sync_mode: 'incremental' });
     }
     
-    console.log(`[PHASE 1] ✓ Customers complete: ${usersFetched} synced`);
+    // Log summary with skipped pages
+    if (customersSkippedPages.length > 0) {
+      console.warn(`[PHASE 1 SUMMARY] Customers sync completed WITH WARNINGS:`);
+      console.warn(`  ✓ Successful: ${usersFetched} customers synced`);
+      console.warn(`  ⚠ Skipped ${customersSkippedPages.length} pages due to 500 errors: [${customersSkippedPages.join(', ')}]`);
+    } else {
+      console.log(`[PHASE 1] ✓ Customers complete: ${usersFetched} synced`);
+    }
 
     // Check timeout before Phase 2
     if (Date.now() - functionStartTime > MAX_RUNTIME_MS) {
@@ -486,8 +502,9 @@ Deno.serve(async (req) => {
     let bookingPages = 0;
     let bookingsMaxIdSeen = bookingsState.max_id_seen || 0;
     const allBookingsForOrderLines: any[] = []; // Collect for Phase 3
+    const bookingsSkippedPages: number[] = [];
     
-    for await (const { rows, page_index, maxIdInPage, totalCount, skipped } of paged(
+    for await (const { rows, page_index, maxIdInPage, totalCount, skipped, skippedPages } of paged(
       "/v1/bookings/", 
       { page_size: 100 },
       bookingsMaxPages,
@@ -496,6 +513,12 @@ Deno.serve(async (req) => {
       bookingsCurrentPage, // Resume from saved page
       bookingsState.high_watermark
     )) {
+      if (skippedPages && skippedPages.length > 0) {
+        skippedPages.forEach(p => {
+          if (!bookingsSkippedPages.includes(p)) bookingsSkippedPages.push(p);
+        });
+      }
+      
       if (bookingPages === 0 && totalCount !== undefined) {
         await setState("bookings", { estimated_total: totalCount });
       }
@@ -537,7 +560,14 @@ Deno.serve(async (req) => {
       await setState("bookings", { sync_mode: 'incremental' });
     }
     
-    console.log(`[PHASE 2] ✓ Bookings complete: ${bookingsFetched} synced`);
+    // Log summary with skipped pages
+    if (bookingsSkippedPages.length > 0) {
+      console.warn(`[PHASE 2 SUMMARY] Bookings sync completed WITH WARNINGS:`);
+      console.warn(`  ✓ Successful: ${bookingsFetched} bookings synced`);
+      console.warn(`  ⚠ Skipped ${bookingsSkippedPages.length} pages due to 500 errors: [${bookingsSkippedPages.join(', ')}]`);
+    } else {
+      console.log(`[PHASE 2] ✓ Bookings complete: ${bookingsFetched} synced`);
+    }
 
     // Check timeout before Phase 3
     if (Date.now() - functionStartTime > MAX_RUNTIME_MS) {
@@ -772,13 +802,40 @@ Deno.serve(async (req) => {
       updated_at: new Date().toISOString()
     });
 
-    // Reset status before final return - 'completed' if all done, 'pending' if more pages remain
-    await setState("customers", { 
-      status: customersReachedEnd ? 'completed' : 'pending' 
-    });
-    await setState("bookings", { 
-      status: bookingsReachedEnd ? 'completed' : 'pending' 
-    });
+    // Reset status before final return - 'success' with warnings if applicable
+    if (customersSkippedPages.length > 0) {
+      await setState("customers", { 
+        status: 'success',
+        error_message: JSON.stringify({
+          type: "partial_failure",
+          message: `Sync completed with ${customersSkippedPages.length} pages skipped`,
+          skipped_pages: customersSkippedPages,
+          successful_records: usersFetched
+        })
+      });
+    } else {
+      await setState("customers", { 
+        status: customersReachedEnd ? 'success' : 'pending',
+        error_message: null
+      });
+    }
+    
+    if (bookingsSkippedPages.length > 0) {
+      await setState("bookings", { 
+        status: 'success',
+        error_message: JSON.stringify({
+          type: "partial_failure",
+          message: `Sync completed with ${bookingsSkippedPages.length} pages skipped`,
+          skipped_pages: bookingsSkippedPages,
+          successful_records: bookingsFetched
+        })
+      });
+    } else {
+      await setState("bookings", { 
+        status: bookingsReachedEnd ? 'success' : 'pending',
+        error_message: null
+      });
+    }
 
     console.log("=== SYNC COMPLETE ===\n");
 
