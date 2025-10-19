@@ -177,7 +177,10 @@ export default function Settings() {
       }
       
       toast.success('Full re-sync initiated! All data will be fetched from scratch. Click "Manual Sync Now" to begin.');
+      
+      // Immediately invalidate cache to show cleared errors
       queryClient.invalidateQueries({ queryKey: ["sync-status"] });
+      refetchSyncStatus();
     } catch (error: any) {
       console.error('Reset sync exception:', error);
       toast.error(`Failed to reset sync: ${error.message || 'Unknown error'}`);

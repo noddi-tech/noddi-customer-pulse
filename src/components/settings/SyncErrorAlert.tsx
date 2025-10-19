@@ -23,11 +23,11 @@ export function SyncErrorAlert({ resource, errorMessage, lastRunAt }: SyncErrorA
   return (
     <Alert variant={isPartialFailure ? "default" : "destructive"} className="mb-4">
       <AlertCircle className="h-4 w-4" />
-      <AlertTitle className="capitalize">
-        {isPartialFailure ? `${resource} Sync Completed with Warnings` : `${resource} Sync Failed`}
+      <AlertTitle className="capitalize flex items-center gap-2">
+        <span>{isPartialFailure ? `${resource} Sync Completed with Warnings` : `${resource} Sync Failed`}</span>
         {lastRunAt && (
-          <span className="text-xs ml-2 font-normal">
-            ({formatDistanceToNow(lastRunAt, { addSuffix: true })})
+          <span className="text-xs font-normal bg-destructive/20 px-2 py-0.5 rounded">
+            {formatDistanceToNow(lastRunAt, { addSuffix: true })}
           </span>
         )}
       </AlertTitle>

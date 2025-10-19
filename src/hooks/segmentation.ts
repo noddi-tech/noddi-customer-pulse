@@ -212,7 +212,7 @@ export function useSyncStatus() {
         .order("resource");
       return data || [];
     },
-    staleTime: 5 * 1000, // 5 seconds during active sync
+    staleTime: 0, // No cache - always fetch fresh data
     refetchInterval: 5 * 1000, // Poll every 5 seconds to monitor active syncs
   });
 }
