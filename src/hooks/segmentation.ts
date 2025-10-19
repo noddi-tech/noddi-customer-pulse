@@ -37,29 +37,19 @@ export function useSegmentCounts() {
   return useQuery({
     queryKey: ["segment-counts"],
     queryFn: async () => {
-      const [lifecycleData, valueData] = await Promise.all([
-        supabase
-          .from("segments")
-          .select("lifecycle")
-          .not("lifecycle", "is", null),
-        supabase
-          .from("segments")
-          .select("value_tier")
-          .not("value_tier", "is", null),
-      ]);
-
-      const counts: SegmentCounts = {};
-
-      lifecycleData.data?.forEach((row) => {
-        const lifecycle = row.lifecycle as string;
-        counts[lifecycle] = (counts[lifecycle] || 0) + 1;
-      });
-
-      valueData.data?.forEach((row) => {
-        const tier = row.value_tier as string;
-        counts[tier] = (counts[tier] || 0) + 1;
-      });
-
+      const { data, error } = await supabase.rpc('get_segment_counts');
+      
+      if (error) throw error;
+      
+      // TypeScript needs explicit casting since RPC returns Json type
+      const result = data as { lifecycle?: Record<string, number>; value_tier?: Record<string, number> } | null;
+      
+      // Transform from { lifecycle: {...}, value_tier: {...} } to flat counts
+      const counts: SegmentCounts = {
+        ...(result?.lifecycle || {}),
+        ...(result?.value_tier || {}),
+      };
+      
       return counts;
     },
     staleTime: 5 * 60 * 1000,
