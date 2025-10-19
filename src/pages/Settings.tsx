@@ -396,7 +396,11 @@ export default function Settings() {
 
             const isRunning = syncStatus?.some((s) => s.status === "running") ?? false;
             const hasError = syncStatus?.some((s) => s.status === "error") ?? false;
-            const isSyncComplete = customersProgress >= 100 && bookingsProgress >= 100 && orderLinesProgress >= 90;
+            // Consider sync complete if all are "completed" or "success" status, OR if progress is sufficient
+            const allSyncsComplete = customersStatus?.status === "completed" && 
+                                     bookingsStatus?.status === "completed" && 
+                                     (orderLinesStatus?.status === "completed" || orderLinesStatus?.status === "success");
+            const isSyncComplete = allSyncsComplete || (customersProgress >= 100 && bookingsProgress >= 100 && orderLinesProgress >= 90);
             
             // Determine current step for help panel
             const getCurrentStep = (): 1 | 2 | 3 | 4 => {
