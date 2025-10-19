@@ -13,6 +13,10 @@ interface SyncWorkflowGuideProps {
   customersStatus?: any;
   bookingsStatus?: any;
   orderLinesStatus?: any;
+  userGroupsInDb?: number;
+  customersInDb?: number;
+  bookingsInDb?: number;
+  orderLinesInDb?: number;
 }
 
 export function SyncWorkflowGuide({
@@ -26,6 +30,10 @@ export function SyncWorkflowGuide({
   customersStatus,
   bookingsStatus,
   orderLinesStatus,
+  userGroupsInDb = 0,
+  customersInDb = 0,
+  bookingsInDb = 0,
+  orderLinesInDb = 0,
 }: SyncWorkflowGuideProps) {
   // STEP 8: Use actual status='completed', not percentages
   const allDataSynced = userGroupsComplete && customersComplete && bookingsComplete && orderLinesComplete;
@@ -36,22 +44,22 @@ export function SyncWorkflowGuide({
       title: "Sync Data",
       substeps: [
         { 
-          label: `User Groups synced: ${userGroupsComplete ? '✓' : '⏳'} ${userGroupsStatus?.rows_fetched?.toLocaleString() || 0}`, 
+          label: `User Groups synced: ${userGroupsComplete ? '✓' : '⏳'} ${userGroupsInDb.toLocaleString()}`, 
           complete: userGroupsComplete,
           waiting: false,
         },
         { 
-          label: `Members synced: ${customersComplete ? '✓' : '⏳'} ${customersStatus?.rows_fetched?.toLocaleString() || 0}`, 
+          label: `Members synced: ${customersComplete ? '✓' : '⏳'} ${customersInDb.toLocaleString()}`, 
           complete: customersComplete,
           waiting: !userGroupsComplete,
         },
         { 
-          label: `Bookings synced: ${bookingsComplete ? '✓' : '⏳'} ${bookingsStatus?.rows_fetched?.toLocaleString() || 0}`, 
+          label: `Bookings synced: ${bookingsComplete ? '✓' : '⏳'} ${bookingsInDb.toLocaleString()}`, 
           complete: bookingsComplete,
           waiting: !customersComplete,
         },
         { 
-          label: `Order lines extracted: ${orderLinesComplete ? '✓' : '⏳'} ${orderLinesStatus?.rows_fetched?.toLocaleString() || 0}`, 
+          label: `Order lines extracted: ${orderLinesComplete ? '✓' : '⏳'} ${orderLinesInDb.toLocaleString()}`, 
           complete: orderLinesComplete,
           waiting: !bookingsComplete,
         },

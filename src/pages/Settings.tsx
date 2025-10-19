@@ -721,6 +721,10 @@ export default function Settings() {
                     customersStatus={customersStatus}
                     bookingsStatus={bookingsStatus}
                     orderLinesStatus={orderLinesStatus}
+                    userGroupsInDb={dbCounts?.user_groups_total || 0}
+                    customersInDb={dbCounts?.customers_total || 0}
+                    bookingsInDb={dbCounts?.bookings || 0}
+                    orderLinesInDb={dbCounts?.order_lines || 0}
                   />
                   <SyncTimeline events={syncEvents} />
                 </div>
