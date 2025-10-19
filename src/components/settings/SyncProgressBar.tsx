@@ -30,10 +30,11 @@ export function SyncProgressBar({
 }: SyncProgressBarProps) {
   // Calculate actual progress with multiple fallbacks
   const getActualProgress = () => {
-    // If status is explicitly 'completed', show 100%
-    if (status === 'completed') return 100;
+    // If status is 'completed' or 'success', show 100%
+    if (status === 'completed' || status === 'success') return 100;
 
-    // Calculate from actual counts
+    // For order_lines, compare against total_records (bookings count) if no estimated_total
+    // For other resources, use estimated total from API if available
     const calculated = total && total > 0 
       ? Math.round((inDb / total) * 100) 
       : progress;
@@ -43,7 +44,7 @@ export function SyncProgressBar({
   };
 
   const actualProgress = getActualProgress();
-  const isComplete = actualProgress >= 100 || status === 'completed';
+  const isComplete = actualProgress >= 100 || status === 'completed' || status === 'success';
   const isRunning = status === "running";
 
   const getBarColor = () => {
