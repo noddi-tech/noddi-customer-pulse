@@ -1,3 +1,4 @@
+// Version: 1.0.1 - Deployed for automatic sync recovery
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.75.0";
 
 const corsHeaders = {
@@ -35,6 +36,7 @@ Deno.serve(async (req) => {
     const apiBaseUrl = Deno.env.get('NODDI_API_BASE_URL');
     const apiKey = Deno.env.get('NODDI_API_KEY');
 
+    console.log('[DEPLOY-CHECK] Sync diagnostics v1.0.1 deployed successfully');
     console.log('[DIAGNOSTICS] Starting sync diagnostics...');
 
     // Fetch API totals from Noddi

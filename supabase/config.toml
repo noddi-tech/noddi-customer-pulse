@@ -1,5 +1,6 @@
 project_id = "wylrkmtpjodunmnwncej"
 
+# Sync and data management functions - v1.0.1
 [functions.sync-noddi-data]
 verify_jwt = false
 
@@ -18,6 +19,7 @@ verify_jwt = false
 [functions.reset-database]
 verify_jwt = false
 
+# Automatic deployment recovery - v1.0.1
 [functions.force-full-sync]
 verify_jwt = false
 

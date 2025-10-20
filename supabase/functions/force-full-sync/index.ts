@@ -1,3 +1,4 @@
+// Version: 1.0.1 - Deployed for automatic sync recovery
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.75.0";
 
 const corsHeaders = {
@@ -16,6 +17,8 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
+    console.log('[DEPLOY-CHECK] Force full sync v1.0.1 deployed successfully');
+    
     const { resource, trigger_sync = true } = await req.json();
     
     if (!resource || !['user_groups', 'customers', 'bookings', 'order_lines'].includes(resource)) {
