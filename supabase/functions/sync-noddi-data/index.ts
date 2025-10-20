@@ -744,17 +744,65 @@ Deno.serve(async (req) => {
       const bookingsReachedEnd = bookingPages < bookingsMaxPages;
       
       if (bookingsReachedEnd) {
-        await setState("bookings", { 
-          status: 'completed',
-          sync_mode: 'incremental',
-          progress_percentage: 100,
-          error_message: bookingsSkippedPages.length > 0 ? JSON.stringify({
-            type: "partial_failure",
-            message: `Sync completed with ${bookingsSkippedPages.length} pages skipped`,
-            skipped_pages: bookingsSkippedPages
-          }) : null
-        });
-        console.log(`[PHASE 2] ✓ Bookings COMPLETED: ${bookingsFetched} synced${bookingsSkippedPages.length > 0 ? ` (${bookingsSkippedPages.length} pages skipped)` : ''}`);
+        // Check data coverage before marking as complete
+        const apiBaseUrl = Deno.env.get('NODDI_API_BASE_URL');
+        const apiKey = Deno.env.get('NODDI_API_KEY');
+        
+        try {
+          const apiRes = await fetch(`${apiBaseUrl}/v1/bookings/?page_size=1`, {
+            headers: { 'Authorization': `Api-Key ${apiKey}` }
+          });
+          const apiData = await apiRes.json();
+          const apiTotal = apiData.count || 0;
+          
+          const { count: dbTotal } = await sb.from('bookings').select('*', { count: 'exact', head: true });
+          const coverage = apiTotal > 0 ? ((dbTotal || 0) / apiTotal) * 100 : 100;
+          
+          console.log(`[PHASE 2] Coverage check: ${dbTotal}/${apiTotal} bookings (${coverage.toFixed(1)}%)`);
+          
+          if (coverage < 95) {
+            console.warn(`[COVERAGE ALERT] Bookings coverage: ${coverage.toFixed(1)}%`);
+            await setState("bookings", {
+              status: 'completed',
+              sync_mode: 'incremental',
+              progress_percentage: 100,
+              error_message: JSON.stringify({
+                type: 'coverage_warning',
+                coverage: coverage.toFixed(1),
+                missing: apiTotal - (dbTotal || 0),
+                recommendation: 'Run force-full-sync to recover missing data',
+                skipped_pages: bookingsSkippedPages.length > 0 ? bookingsSkippedPages : undefined
+              })
+            });
+          } else {
+            await setState("bookings", { 
+              status: 'completed',
+              sync_mode: 'incremental',
+              progress_percentage: 100,
+              error_message: bookingsSkippedPages.length > 0 ? JSON.stringify({
+                type: "partial_failure",
+                message: `Sync completed with ${bookingsSkippedPages.length} pages skipped`,
+                skipped_pages: bookingsSkippedPages
+              }) : null
+            });
+          }
+          
+          console.log(`[PHASE 2] ✓ Bookings COMPLETED: ${bookingsFetched} synced${bookingsSkippedPages.length > 0 ? ` (${bookingsSkippedPages.length} pages skipped)` : ''}`);
+        } catch (coverageError) {
+          console.error('[PHASE 2] Coverage check failed:', coverageError);
+          // Still mark as completed even if coverage check fails
+          await setState("bookings", { 
+            status: 'completed',
+            sync_mode: 'incremental',
+            progress_percentage: 100,
+            error_message: bookingsSkippedPages.length > 0 ? JSON.stringify({
+              type: "partial_failure",
+              message: `Sync completed with ${bookingsSkippedPages.length} pages skipped`,
+              skipped_pages: bookingsSkippedPages
+            }) : null
+          });
+          console.log(`[PHASE 2] ✓ Bookings COMPLETED: ${bookingsFetched} synced${bookingsSkippedPages.length > 0 ? ` (${bookingsSkippedPages.length} pages skipped)` : ''}`);
+        }
       } else {
         await setState("bookings", { status: 'pending' });
         console.log(`[PHASE 2] Bookings in progress, will resume next invocation`);
