@@ -124,10 +124,25 @@ export function useSyncDiagnostics() {
     queryKey: ["sync-diagnostics"],
     queryFn: async () => {
       const { data, error } = await supabase.functions.invoke("sync-diagnostics");
-      if (error) throw error;
+      if (error) {
+        // Check if it's a deployment issue (404 or fetch failed)
+        const errorMessage = error.message?.toLowerCase() || '';
+        const isDeploymentIssue = 
+          errorMessage.includes('404') || 
+          errorMessage.includes('not found') ||
+          errorMessage.includes('failed to fetch') ||
+          errorMessage.includes('functionnotfounderror');
+        
+        throw { 
+          message: error.message, 
+          isDeploymentIssue 
+        };
+      }
       return data;
     },
-    refetchInterval: 30000, // Refresh every 30 seconds
+    retry: 3, // Retry 3 times
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000), // Exponential backoff
+    refetchInterval: 30000, // Refresh every 30 seconds once working
     staleTime: 20000,
   });
 }

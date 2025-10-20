@@ -7,9 +7,13 @@ import { useForceFullSync, useSyncDiagnostics } from "@/hooks/edgeFunctions";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function SyncDiagnosticPanel() {
-  const { data: diagnostics, isLoading, refetch } = useSyncDiagnostics();
+  const { data: diagnostics, isLoading, error, refetch, failureCount } = useSyncDiagnostics();
   const forceFullSync = useForceFullSync();
   const [fixingResource, setFixingResource] = useState<string | null>(null);
+
+  // Detect if this is a deployment issue
+  const isDeploymentIssue = error && (error as any)?.isDeploymentIssue;
+  const isRetrying = failureCount > 0 && failureCount < 3;
 
   const handleFix = async (resource: string) => {
     setFixingResource(resource);
@@ -21,6 +25,52 @@ export function SyncDiagnosticPanel() {
       setFixingResource(null);
     }
   };
+
+  // Deployment status UI
+  if (isDeploymentIssue || isRetrying) {
+    return (
+      <Card className="border-yellow-500/50">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <RefreshCw className="h-5 w-5 text-yellow-500 animate-spin" />
+            Deploying Sync Diagnostics...
+          </CardTitle>
+          <CardDescription>
+            {isRetrying 
+              ? `Checking deployment status (attempt ${failureCount}/3)...`
+              : 'Edge functions are being deployed. This usually takes 2-3 minutes.'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              <div className="space-y-2">
+                <p>The sync health dashboard is currently deploying.</p>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <div className="flex gap-1">
+                    <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
+                    <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
+                    <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
+                  </div>
+                  <span>Waiting for edge function deployment...</span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => refetch()}
+                  className="mt-2"
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Check Again
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -38,12 +88,22 @@ export function SyncDiagnosticPanel() {
     );
   }
 
-  if (!diagnostics?.ok) {
+  if (!diagnostics?.ok || error) {
     return (
       <Alert variant="destructive">
         <AlertCircle className="h-4 w-4" />
         <AlertDescription>
-          Failed to load sync diagnostics. Please try again.
+          <div className="space-y-2">
+            <p>Failed to load sync diagnostics: {(error as any)?.message || 'Unknown error'}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Retry
+            </Button>
+          </div>
         </AlertDescription>
       </Alert>
     );
