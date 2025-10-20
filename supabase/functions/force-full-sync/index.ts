@@ -1,4 +1,4 @@
-// Version: 1.0.1 - Deployed for automatic sync recovery
+// Version: 1.0.2 - Fixed updated_at column error
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.75.0";
 
 const corsHeaders = {
@@ -45,8 +45,7 @@ Deno.serve(async (req) => {
         high_watermark: '1970-01-01T00:00:00+00:00',
         status: 'pending',
         error_message: null,
-        progress_percentage: 0,
-        updated_at: new Date().toISOString()
+        progress_percentage: 0
       })
       .eq('resource', resource);
 
