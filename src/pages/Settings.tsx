@@ -737,13 +737,13 @@ export default function Settings() {
                           <SyncProgressBar
                             resource="user_groups"
                             progress={(userGroupsStatus as any)?.progress_percentage || 0}
-                            total={(userGroupsStatus as any)?.display_total || userGroupsStatus?.estimated_total}
-                            inDb={(userGroupsStatus as any)?.display_count || dbCounts?.user_groups_total || 0}
+                            total={userGroupsStatus?.estimated_total}
+                            inDb={dbCounts?.user_groups_total || 0}
                            status={userGroupsStatus?.status || "pending"}
                            syncMode={userGroupsStatus?.sync_mode}
                            currentPage={userGroupsStatus?.current_page}
                            lastRunAt={userGroupsStatus?.last_run_at ? new Date(userGroupsStatus.last_run_at) : null}
-                         />
+                          />
                        </div>
                        
                         {/* Only show Members if User Groups is completed */}
@@ -752,8 +752,8 @@ export default function Settings() {
                             <SyncProgressBar
                               resource="customers"
                               progress={(customersStatus as any)?.progress_percentage || 0}
-                              total={(customersStatus as any)?.display_total || customersStatus?.estimated_total}
-                              inDb={(customersStatus as any)?.display_count || dbCounts?.customers_total || 0}
+                              total={customersStatus?.estimated_total}
+                              inDb={dbCounts?.customers_total || 0}
                              status={customersStatus?.status || "pending"}
                              syncMode={customersStatus?.sync_mode}
                              currentPage={customersStatus?.current_page}
@@ -768,8 +768,8 @@ export default function Settings() {
                             <SyncProgressBar
                               resource="bookings"
                               progress={(bookingsStatus as any)?.progress_percentage || 0}
-                              total={(bookingsStatus as any)?.display_total || bookingsStatus?.estimated_total}
-                              inDb={(bookingsStatus as any)?.display_count || dbCounts?.bookings || 0}
+                              total={bookingsStatus?.estimated_total}
+                              inDb={dbCounts?.bookings || 0}
                              status={bookingsStatus?.status || "pending"}
                              syncMode={bookingsStatus?.sync_mode}
                              currentPage={bookingsStatus?.current_page}
@@ -785,8 +785,8 @@ export default function Settings() {
                              <SyncProgressBar
                                resource="order_lines"
                                progress={(orderLinesStatus as any)?.progress_percentage || 0}
-                               total={(orderLinesStatus as any)?.display_total || Math.round(expectedOrderLines)}
-                               inDb={(orderLinesStatus as any)?.display_count || dbCounts?.order_lines || 0}
+                               total={Math.round(expectedOrderLines)}
+                               inDb={dbCounts?.order_lines || 0}
                               status={orderLinesStatus?.status || "pending"}
                               syncMode={orderLinesStatus?.sync_mode}
                               currentPage={orderLinesStatus?.current_page}

@@ -504,8 +504,6 @@ Deno.serve(async (req) => {
           rows_fetched: userGroupsFetched,
           max_id_seen: userGroupsMaxIdSeen,
           progress_percentage: progressPct,
-          display_count: (page_index + 1) * 100,
-          display_total: totalToSync,
           high_watermark: maxUpdated,
           status: 'running'
         });
@@ -620,9 +618,7 @@ Deno.serve(async (req) => {
             rows_fetched: membersFetched,
             current_page: page_index + 1,
             status: 'running',
-            progress_percentage: progressPct,
-            display_count: (page_index + 1) * 100,
-            display_total: totalToSync
+            progress_percentage: progressPct
           });
           
           console.log(`[PHASE 1] members page ${page_index}: ${rows.length} rows`);
@@ -734,9 +730,7 @@ Deno.serve(async (req) => {
             rows_fetched: bookingsFetched,
             current_page: page_index + 1,
             status: 'running',
-            progress_percentage: progressPct,
-            display_count: (page_index + 1) * 100,
-            display_total: totalToSync
+            progress_percentage: progressPct
           });
           
           console.log(`[PHASE 2] bookings page ${page_index}: ${rows.length} rows`);
@@ -892,9 +886,7 @@ Deno.serve(async (req) => {
             rows_fetched: totalOrderLinesExtracted,
             status: 'running',
             estimated_total: totalBookingsInDb || 0,
-            progress_percentage: progressPct,
-            display_count: totalOrderLinesExtracted,
-            display_total: totalBookingsInDb
+            progress_percentage: progressPct
           });
           
           console.log(`[order_lines] Batch ${currentBatch}/${totalBatches} complete: ${linesExtracted} lines extracted (${totalOrderLinesExtracted} total), max_id=${maxBookingIdProcessed}`);
