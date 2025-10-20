@@ -24,6 +24,7 @@ import { SyncTimeline } from "@/components/settings/SyncTimeline";
 import { SyncCompleteAlert } from "@/components/settings/SyncCompleteAlert";
 import { SyncErrorAlert } from "@/components/settings/SyncErrorAlert";
 import { DiagnosticPanel } from "@/components/settings/DiagnosticPanel";
+import { SyncDiagnosticPanel } from "@/components/settings/SyncDiagnosticPanel";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Info, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -603,6 +604,10 @@ export default function Settings() {
               )}
             </CardContent>
           </Card>
+
+          {/* Sync Health Dashboard - NEW */}
+          <SyncDiagnosticPanel />
+
 
           {/* Full Re-Sync Progress - Visual only, no duplicate messages */}
           {bookingsStatus?.sync_mode === "full" && bookingsStatus?.status === "running" && bookingsStatus.estimated_total && (

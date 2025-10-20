@@ -323,6 +323,42 @@ export type Database = {
         }
         Relationships: []
       }
+      sync_mode_history: {
+        Row: {
+          changed_at: string | null
+          changed_by: string | null
+          id: string
+          new_mode: string | null
+          new_page: number | null
+          old_mode: string | null
+          previous_page: number | null
+          reason: string | null
+          resource: string
+        }
+        Insert: {
+          changed_at?: string | null
+          changed_by?: string | null
+          id?: string
+          new_mode?: string | null
+          new_page?: number | null
+          old_mode?: string | null
+          previous_page?: number | null
+          reason?: string | null
+          resource: string
+        }
+        Update: {
+          changed_at?: string | null
+          changed_by?: string | null
+          id?: string
+          new_mode?: string | null
+          new_page?: number | null
+          old_mode?: string | null
+          previous_page?: number | null
+          reason?: string | null
+          resource?: string
+        }
+        Relationships: []
+      }
       sync_state: {
         Row: {
           auto_sync_enabled: boolean | null
