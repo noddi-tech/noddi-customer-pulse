@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -92,5 +92,42 @@ export function useResetDatabase() {
     onError: (error) => {
       toast.error(`Database reset failed: ${error.message}`);
     },
+  });
+}
+
+export function useForceFullSync() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ resource, trigger_sync }: { resource: string; trigger_sync: boolean }) => {
+      const { data, error } = await supabase.functions.invoke("force-full-sync", {
+        body: { resource, trigger_sync },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      toast.success(
+        `Full sync initiated for ${data.resource}. Estimated time: ${data.estimated_time_minutes} minutes.`
+      );
+      queryClient.invalidateQueries({ queryKey: ["sync-status"] });
+      queryClient.invalidateQueries({ queryKey: ["sync-diagnostics"] });
+    },
+    onError: (error) => {
+      toast.error(`Force full sync failed: ${error.message}`);
+    },
+  });
+}
+
+export function useSyncDiagnostics() {
+  return useQuery({
+    queryKey: ["sync-diagnostics"],
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke("sync-diagnostics");
+      if (error) throw error;
+      return data;
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+    staleTime: 20000,
   });
 }

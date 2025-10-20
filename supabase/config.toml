@@ -17,3 +17,9 @@ verify_jwt = false
 
 [functions.reset-database]
 verify_jwt = false
+
+[functions.force-full-sync]
+verify_jwt = false
+
+[functions.sync-diagnostics]
+verify_jwt = false
