@@ -41,16 +41,27 @@ Deno.serve(async (req) => {
 
     // Fetch API totals from Noddi
     const [userGroupsRes, usersRes, bookingsRes] = await Promise.all([
-      fetch(`${apiBaseUrl}/user-groups/?page_size=1`, {
-        headers: { 'Authorization': `Token ${apiKey}` }
+      fetch(`${apiBaseUrl}/v1/user-groups/?page_size=1`, {
+        headers: { 'Authorization': `Api-Key ${apiKey}` }
       }),
-      fetch(`${apiBaseUrl}/users/?page_size=1`, {
-        headers: { 'Authorization': `Token ${apiKey}` }
+      fetch(`${apiBaseUrl}/v1/users/?page_size=1`, {
+        headers: { 'Authorization': `Api-Key ${apiKey}` }
       }),
-      fetch(`${apiBaseUrl}/bookings/?page_size=1`, {
-        headers: { 'Authorization': `Token ${apiKey}` }
+      fetch(`${apiBaseUrl}/v1/bookings/?page_size=1`, {
+        headers: { 'Authorization': `Api-Key ${apiKey}` }
       })
     ]);
+
+    // Check response status before parsing
+    if (!userGroupsRes.ok || !usersRes.ok || !bookingsRes.ok) {
+      const errors = [];
+      if (!userGroupsRes.ok) errors.push(`user-groups: ${userGroupsRes.status}`);
+      if (!usersRes.ok) errors.push(`users: ${usersRes.status}`);
+      if (!bookingsRes.ok) errors.push(`bookings: ${bookingsRes.status}`);
+      
+      console.error('[DIAGNOSTICS] API request failed:', errors.join(', '));
+      throw new Error(`API requests failed: ${errors.join(', ')}`);
+    }
 
     const apiTotals = {
       user_groups: (await userGroupsRes.json()).count || 0,
