@@ -399,11 +399,11 @@ export default function Settings() {
             const orderLinesProgress = (orderLinesStatus as any)?.progress_percentage || 0;
 
             // STEP 7: Fix Order Lines status - must be extracted from ALL bookings
-            const expectedOrderLines = dbCounts?.bookings || 0;
+            const expectedOrderLines = dbCounts?.bookings_total || 0;
             const orderLinesActuallyComplete = 
               orderLinesStatus?.status === "completed" && 
               bookingsStatus?.status === "completed" &&
-              (dbCounts?.order_lines || 0) >= expectedOrderLines * 0.9; // At least 90% coverage
+              (dbCounts?.order_lines_total || 0) >= expectedOrderLines * 0.9; // At least 90% coverage
 
             const isRunning = syncStatus?.some((s) => s.status === "running") ?? false;
             const hasError = syncStatus?.some((s) => s.status === "error") ?? false;
@@ -657,8 +657,8 @@ export default function Settings() {
                   bookingsTotal={bookingsStatus?.estimated_total}
                   userGroupsInDb={dbCounts?.user_groups_total || 0}
                   customersInDb={dbCounts?.customers_total || 0}
-                  bookingsInDb={dbCounts?.bookings || 0}
-                  orderLinesInDb={dbCounts?.order_lines || 0}
+                  bookingsInDb={dbCounts?.bookings_total || 0}
+                  orderLinesInDb={dbCounts?.order_lines_total || 0}
                   expectedOrderLines={Math.round(expectedOrderLines)}
                   isRunning={isRunning}
                   hasError={hasError}
@@ -716,8 +716,8 @@ export default function Settings() {
                     orderLinesStatus={orderLinesStatus}
                     userGroupsInDb={dbCounts?.user_groups_total || 0}
                     customersInDb={dbCounts?.customers_total || 0}
-                    bookingsInDb={dbCounts?.bookings || 0}
-                    orderLinesInDb={dbCounts?.order_lines || 0}
+                    bookingsInDb={dbCounts?.bookings_total || 0}
+                    orderLinesInDb={dbCounts?.order_lines_total || 0}
                   />
                   <SyncTimeline events={syncEvents} />
                 </div>
@@ -769,7 +769,7 @@ export default function Settings() {
                               resource="bookings"
                               progress={(bookingsStatus as any)?.progress_percentage || 0}
                               total={bookingsStatus?.estimated_total}
-                              inDb={dbCounts?.bookings || 0}
+                              inDb={dbCounts?.bookings_total || 0}
                              status={bookingsStatus?.status || "pending"}
                              syncMode={bookingsStatus?.sync_mode}
                              currentPage={bookingsStatus?.current_page}
@@ -786,7 +786,7 @@ export default function Settings() {
                                resource="order_lines"
                                progress={(orderLinesStatus as any)?.progress_percentage || 0}
                                total={Math.round(expectedOrderLines)}
-                               inDb={dbCounts?.order_lines || 0}
+                               inDb={dbCounts?.order_lines_total || 0}
                               status={orderLinesStatus?.status || "pending"}
                               syncMode={orderLinesStatus?.sync_mode}
                               currentPage={orderLinesStatus?.current_page}
@@ -880,8 +880,8 @@ export default function Settings() {
                   This will permanently delete ALL synced data from your database:
                   <ul className="list-disc list-inside mt-2 space-y-1">
                     <li>All customers ({(dbCounts?.customers_total || 0).toLocaleString()})</li>
-                    <li>All bookings ({(dbCounts?.bookings || 0).toLocaleString()})</li>
-                    <li>All order lines ({(dbCounts?.order_lines || 0).toLocaleString()})</li>
+                    <li>All bookings ({(dbCounts?.bookings_total || 0).toLocaleString()})</li>
+                    <li>All order lines ({(dbCounts?.order_lines_total || 0).toLocaleString()})</li>
                     <li>All user groups ({(dbCounts?.user_groups_total || 0).toLocaleString()})</li>
                     <li>All features and segments</li>
                   </ul>
@@ -912,8 +912,8 @@ export default function Settings() {
                       </p>
                       <ul className="list-disc list-inside space-y-1">
                         <li>{(dbCounts?.customers_total || 0).toLocaleString()} customers</li>
-                        <li>{(dbCounts?.bookings || 0).toLocaleString()} bookings</li>
-                        <li>{(dbCounts?.order_lines || 0).toLocaleString()} order lines</li>
+                        <li>{(dbCounts?.bookings_total || 0).toLocaleString()} bookings</li>
+                        <li>{(dbCounts?.order_lines_total || 0).toLocaleString()} order lines</li>
                         <li>{(dbCounts?.user_groups_total || 0).toLocaleString()} user groups</li>
                         <li>All features and segments</li>
                       </ul>
