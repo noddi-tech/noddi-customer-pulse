@@ -877,7 +877,7 @@ Deno.serve(async (req) => {
         .select('id, booking_items')
         .gt('id', lastProcessedBookingId)
         .order('id', { ascending: true })
-        .limit(500); // Process up to 500 bookings per run
+        .limit(2000); // Process up to 2000 bookings per run (4x faster, safe within 8min timeout)
     
       if (bookingsQueryError) {
         console.error('[order_lines] Error querying bookings:', bookingsQueryError);
