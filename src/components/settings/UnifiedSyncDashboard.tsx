@@ -112,7 +112,7 @@ export function UnifiedSyncDashboard({
   const lastUpdate = getLastUpdate();
 
   // Check for coverage issues
-  const hasCoverageIssues = diagnostics?.resources?.some(r => 
+  const hasCoverageIssues = Array.isArray(diagnostics?.resources) && diagnostics.resources.some(r => 
     r.status === 'missing_data' || (r.coverage_pct && r.coverage_pct < 95)
   );
 
@@ -328,7 +328,7 @@ export function UnifiedSyncDashboard({
         </div>
 
         {/* Data Health Summary */}
-        {diagnostics?.resources && diagnostics.resources.length > 0 && (
+        {Array.isArray(diagnostics?.resources) && diagnostics.resources.length > 0 && (
           <div className="pt-4 border-t space-y-3">
             <h4 className="text-sm font-semibold text-muted-foreground">Data Health:</h4>
             
