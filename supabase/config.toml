@@ -19,6 +19,9 @@ verify_jwt = false
 [functions.reset-database]
 verify_jwt = false
 
+[functions.reset-order-lines]
+verify_jwt = false
+
 # Automatic deployment recovery - v1.0.1
 [functions.force-full-sync]
 verify_jwt = false

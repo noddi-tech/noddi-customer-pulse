@@ -93,9 +93,9 @@ export function UnifiedSyncDashboard({
       ? (bookingsInDb / bookingsStatus.estimated_total) * 25 
       : 0; // If no estimate, assume 0
     
-    const phase3Progress = expectedOrderLines > 0
-      ? (orderLinesInDb / expectedOrderLines) * 25
-      : 0; // If no expected lines, assume 0
+    const phase3Progress = orderLinesStatus?.status === 'completed' 
+      ? 25
+      : ((orderLinesStatus as any)?.progress_percentage || 0) * 0.25;
     
     return Math.round(Math.min(phase0Progress + phase1Progress + phase2Progress + phase3Progress, 100));
   };
@@ -346,7 +346,7 @@ export function UnifiedSyncDashboard({
                 <>
                   <Progress value={(orderLinesStatus as any)?.progress_percentage || 0} className="h-2" />
                   <div className="text-xs text-muted-foreground pl-6">
-                    {orderLinesInDb.toLocaleString()} / {expectedOrderLines.toLocaleString()} records
+                    {orderLinesInDb.toLocaleString()} order lines from {((orderLinesStatus as any)?.rows_fetched || 0).toLocaleString()} / {expectedOrderLines.toLocaleString()} bookings
                     <span className="ml-2">• {((orderLinesStatus as any)?.progress_percentage || 0)}% complete</span>
                   </div>
                 </>

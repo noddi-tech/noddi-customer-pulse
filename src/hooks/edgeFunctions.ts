@@ -95,6 +95,26 @@ export function useResetDatabase() {
   });
 }
 
+export function useResetOrderLines() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("reset-order-lines");
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      toast.success("Order lines cleared! Auto-sync will re-extract in ~2 minutes.");
+      queryClient.invalidateQueries({ queryKey: ["sync-status"] });
+      queryClient.invalidateQueries({ queryKey: ["database-counts"] });
+    },
+    onError: (error) => {
+      toast.error(`Order lines reset failed: ${error.message}`);
+    },
+  });
+}
+
 export function useForceFullSync() {
   const queryClient = useQueryClient();
 

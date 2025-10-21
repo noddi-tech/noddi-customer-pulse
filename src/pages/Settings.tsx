@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSettings } from "@/hooks/segmentation";
-import { useSyncNow, useComputeSegments, useTestConnection, useResetDatabase, useForceFullSync, useSyncDiagnostics } from "@/hooks/edgeFunctions";
+import { useSyncNow, useComputeSegments, useTestConnection, useResetDatabase, useResetOrderLines, useForceFullSync, useSyncDiagnostics } from "@/hooks/edgeFunctions";
 import { toast } from "sonner";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
@@ -41,6 +41,7 @@ export default function Settings() {
   const computeMutation = useComputeSegments();
   const testMutation = useTestConnection();
   const resetDatabaseMutation = useResetDatabase();
+  const resetOrderLinesMutation = useResetOrderLines();
   const forceFullSyncMutation = useForceFullSync();
   const { data: syncDiagnostics } = useSyncDiagnostics();
   const queryClient = useQueryClient();
@@ -191,46 +192,8 @@ export default function Settings() {
     }
   };
 
-  const handleReExtractOrderLines = async () => {
-    try {
-      // First, delete all existing order lines
-      const { error: deleteError } = await supabase
-        .from('order_lines')
-        .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all
-      
-      if (deleteError) {
-        console.error('Delete order lines error:', deleteError);
-        toast.error(`Failed to clear order lines: ${deleteError.message}`);
-        return;
-      }
-      
-      // Then reset sync state to force re-extraction
-      const { error } = await supabase.from('sync_state').upsert({
-        resource: 'order_lines',
-        sync_mode: 'full',
-        current_page: 0,
-        rows_fetched: 0,
-        progress_percentage: 0,
-        status: 'pending',
-        error_message: null,
-        last_run_at: new Date().toISOString(),
-        max_id_seen: 0,
-      }, { onConflict: 'resource' });
-
-      if (error) {
-        console.error('Re-extract order lines error:', error);
-        toast.error(`Failed to reset order lines: ${error.message}`);
-        return;
-      }
-      
-      toast.success('Order lines cleared! Auto-sync will re-extract in ~2 minutes.');
-      queryClient.invalidateQueries({ queryKey: ["sync-status"] });
-      queryClient.invalidateQueries({ queryKey: ["database-counts"] });
-    } catch (error: any) {
-      console.error('Re-extract exception:', error);
-      toast.error(`Failed to reset: ${error.message || 'Unknown error'}`);
-    }
+  const handleReExtractOrderLines = () => {
+    resetOrderLinesMutation.mutate();
   };
 
   return (
