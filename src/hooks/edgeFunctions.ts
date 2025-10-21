@@ -38,37 +38,57 @@ export function useComputeSegments() {
       const batchSize = 1000;
       let totalProcessed = 0;
       let totalCustomers = 0;
+      let batchCount = 0;
+      
+      console.log('[FRONTEND] 🚀 Starting compute-segments batching loop');
       
       while (true) {
-        // Call edge function with query parameters
-        const response = await fetch(
-          `https://wylrkmtpjodunmnwncej.supabase.co/functions/v1/compute-segments?offset=${offset}&batch_size=${batchSize}`,
-          {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5bHJrbXRwam9kdW5tbnduY2VqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA2MzA1ODAsImV4cCI6MjA3NjIwNjU4MH0.L0tBvJ5tCfKiclLo6q35TIC8gOrxUiQ2tVmk5V2RQpo`,
-              'Content-Type': 'application/json'
+        batchCount++;
+        console.log(`[FRONTEND] 📦 Batch ${batchCount}: Calling edge function with offset=${offset}, batchSize=${batchSize}`);
+        
+        try {
+          // Call edge function with query parameters
+          const response = await fetch(
+            `https://wylrkmtpjodunmnwncej.supabase.co/functions/v1/compute-segments?offset=${offset}&batch_size=${batchSize}`,
+            {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5bHJrbXRwam9kdW5tbnduY2VqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA2MzA1ODAsImV4cCI6MjA3NjIwNjU4MH0.L0tBvJ5tCfKiclLo6q35TIC8gOrxUiQ2tVmk5V2RQpo`,
+                'Content-Type': 'application/json'
+              }
             }
+          );
+          
+          console.log(`[FRONTEND] 📡 Batch ${batchCount}: Response status=${response.status}, ok=${response.ok}`);
+          
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`[FRONTEND] ❌ Batch ${batchCount}: Response failed:`, errorText);
+            throw new Error(`Batch processing failed: ${errorText}`);
           }
-        );
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Batch processing failed: ${errorText}`);
+          
+          const data = await response.json();
+          console.log(`[FRONTEND] 📊 Batch ${batchCount}: Received data:`, JSON.stringify(data, null, 2));
+          
+          totalProcessed += data.batch.processed;
+          totalCustomers = data.batch.total;
+          
+          console.log(`[FRONTEND] 📈 Batch ${batchCount}: totalProcessed=${totalProcessed}, totalCustomers=${totalCustomers}, hasMore=${data.batch.hasMore}`);
+          
+          onProgress?.(data.batch.progress, totalProcessed, totalCustomers);
+          
+          if (!data.batch.hasMore) {
+            console.log(`[FRONTEND] ✅ Loop complete! Processed ${batchCount} batches, ${totalProcessed} customers total`);
+            return { users: totalProcessed, total: totalCustomers };
+          }
+          
+          offset = data.batch.nextOffset;
+          console.log(`[FRONTEND] ⏭️  Batch ${batchCount}: Continuing to next batch with offset=${offset}`);
+          
+        } catch (error) {
+          console.error(`[FRONTEND] 💥 Batch ${batchCount}: Error during processing:`, error);
+          throw error;
         }
-        
-        const data = await response.json();
-        
-        totalProcessed += data.batch.processed;
-        totalCustomers = data.batch.total;
-        
-        onProgress?.(data.batch.progress, totalProcessed, totalCustomers);
-        
-        if (!data.batch.hasMore) {
-          return { users: totalProcessed, total: totalCustomers };
-        }
-        
-        offset = data.batch.nextOffset;
       }
     },
     onSuccess: (data) => {
