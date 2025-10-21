@@ -78,14 +78,13 @@ serve(async (req) => {
     const storageMap = new Map<number, { active: boolean; ended_at: string | null }>();
     (storage || []).forEach((r: any) => storageMap.set(r.user_group_id, { active: r.is_active, ended_at: r.ended_at }));
 
-    // Get all unique user_group_ids - optimized query
+    // Get all unique user_group_ids - query all customers
     const { data: userGroupIds } = await sb
-      .from("active_bookings")
-      .select("user_group_id")
-      .not("user_group_id", "is", null)
+      .from("user_groups")
+      .select("id")
       .limit(100000);
     
-    const uniqueUserGroupIds = [...new Set((userGroupIds || []).map(b => b.user_group_id))];
+    const uniqueUserGroupIds = [...new Set((userGroupIds || []).map(ug => ug.id))];
     const totalCustomers = uniqueUserGroupIds.length;
     console.log(`[compute] Found ${totalCustomers} unique user_groups (customers)`);
     
