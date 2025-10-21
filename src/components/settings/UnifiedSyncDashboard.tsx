@@ -191,10 +191,13 @@ export function UnifiedSyncDashboard({
               <>
                 <Progress value={(userGroupsStatus as any)?.progress_percentage || 0} className="h-2" />
                 <div className="text-xs text-muted-foreground pl-6">
-                  {userGroupsStatus.rows_fetched?.toLocaleString() || 0} / {userGroupsStatus.estimated_total?.toLocaleString() || 0} records
+                  {userGroupsInDb.toLocaleString()} / {userGroupsStatus.estimated_total?.toLocaleString() || 0} records
                   {getEstimatedTime(userGroupsStatus) && (
                     <span className="ml-2">• {getEstimatedTime(userGroupsStatus)} remaining</span>
                   )}
+                </div>
+                <div className="text-xs text-muted-foreground pl-6 opacity-70">
+                  Current run: +{userGroupsStatus.rows_fetched?.toLocaleString() || 0} fetched (page {userGroupsStatus.current_page})
                 </div>
               </>
             ) : (
@@ -229,10 +232,13 @@ export function UnifiedSyncDashboard({
                 <>
                   <Progress value={(customersStatus as any)?.progress_percentage || 0} className="h-2" />
                   <div className="text-xs text-muted-foreground pl-6">
-                    {customersStatus.rows_fetched?.toLocaleString() || 0} / {customersStatus.estimated_total?.toLocaleString() || 0} records
+                    {customersInDb.toLocaleString()} / {customersStatus.estimated_total?.toLocaleString() || 0} records
                     {getEstimatedTime(customersStatus) && (
                       <span className="ml-2">• {getEstimatedTime(customersStatus)} remaining</span>
                     )}
+                  </div>
+                  <div className="text-xs text-muted-foreground pl-6 opacity-70">
+                    Current run: +{customersStatus.rows_fetched?.toLocaleString() || 0} fetched (page {customersStatus.current_page})
                   </div>
                 </>
               ) : (
@@ -271,10 +277,13 @@ export function UnifiedSyncDashboard({
                 <>
                   <Progress value={(bookingsStatus as any)?.progress_percentage || 0} className="h-2" />
                   <div className="text-xs text-muted-foreground pl-6">
-                    {bookingsStatus.rows_fetched?.toLocaleString() || 0} / {bookingsStatus.estimated_total?.toLocaleString() || 0} records
+                    {bookingsInDb.toLocaleString()} / {bookingsStatus.estimated_total?.toLocaleString() || 0} records
                     {getEstimatedTime(bookingsStatus) && (
                       <span className="ml-2">• {getEstimatedTime(bookingsStatus)} remaining</span>
                     )}
+                  </div>
+                  <div className="text-xs text-muted-foreground pl-6 opacity-70">
+                    Current run: +{bookingsStatus.rows_fetched?.toLocaleString() || 0} fetched (page {bookingsStatus.current_page})
                   </div>
                 </>
               ) : (
