@@ -78,15 +78,34 @@ serve(async (req) => {
     const storageMap = new Map<number, { active: boolean; ended_at: string | null }>();
     (storage || []).forEach((r: any) => storageMap.set(r.user_group_id, { active: r.is_active, ended_at: r.ended_at }));
 
-    // Get all unique user_group_ids - query all customers
-    const { data: userGroupIds } = await sb
-      .from("user_groups")
-      .select("id")
-      .limit(100000);
-    
-    const uniqueUserGroupIds = [...new Set((userGroupIds || []).map(ug => ug.id))];
+    // Get all unique user_group_ids - PAGINATE through ALL customers
+    const allUserGroupIds: number[] = [];
+    let fetchPage = 0;
+    const fetchPageSize = 1000;
+    let hasMoreToFetch = true;
+
+    console.log('[compute] Fetching all user_groups from database...');
+    while (hasMoreToFetch) {
+      const { data: userGroupIds } = await sb
+        .from("user_groups")
+        .select("id")
+        .range(fetchPage * fetchPageSize, (fetchPage + 1) * fetchPageSize - 1);
+      
+      if (userGroupIds && userGroupIds.length > 0) {
+        allUserGroupIds.push(...userGroupIds.map(ug => ug.id));
+        console.log(`[compute] Fetched page ${fetchPage + 1}: ${userGroupIds.length} customers (total so far: ${allUserGroupIds.length})`);
+        fetchPage++;
+        if (userGroupIds.length < fetchPageSize) {
+          hasMoreToFetch = false;
+        }
+      } else {
+        hasMoreToFetch = false;
+      }
+    }
+
+    const uniqueUserGroupIds = [...new Set(allUserGroupIds)];
     const totalCustomers = uniqueUserGroupIds.length;
-    console.log(`[compute] Found ${totalCustomers} unique user_groups (customers)`);
+    console.log(`[compute] ✓ Found ${totalCustomers} unique user_groups (customers)`);
     
     // Process only the current batch
     const batchUserGroupIds = uniqueUserGroupIds.slice(batchOffset, batchOffset + batchSize);

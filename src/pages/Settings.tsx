@@ -487,10 +487,19 @@ export default function Settings() {
             const handleComputeSegments = async () => {
               setIsComputingSegments(true);
               const startTime = Date.now();
+              
+              // Phase 1: Show "Fetching customers" message
+              const fetchToastId = toast.info('Fetching all customers from database...', {
+                id: 'compute-fetch',
+                duration: Infinity
+              });
+              
               try {
                 const result = await computeMutation.mutateAsync({
                   onProgress: (progress, processed, total) => {
-                    toast.info(`Processing: ${processed}/${total} (${progress}%)`, {
+                    // Phase 2: Dismiss fetch toast and show processing progress
+                    toast.dismiss('compute-fetch');
+                    toast.info(`Processing: ${processed.toLocaleString()}/${total.toLocaleString()} customers (${progress}%)`, {
                       id: 'compute-progress',
                       duration: 1000
                     });
@@ -498,8 +507,11 @@ export default function Settings() {
                 });
                 const duration = ((Date.now() - startTime) / 1000).toFixed(1);
                 setLastComputeTime(new Date());
-                toast.success(`Processed ${result.users || 0} customers in ${duration}s`);
+                toast.dismiss('compute-fetch');
+                toast.dismiss('compute-progress');
+                toast.success(`✓ Processed ${(result.users || 0).toLocaleString()} customers in ${duration}s`);
               } catch (error: any) {
+                toast.dismiss('compute-fetch');
                 toast.error(`Computation failed: ${error.message}`);
               } finally {
                 setIsComputingSegments(false);
