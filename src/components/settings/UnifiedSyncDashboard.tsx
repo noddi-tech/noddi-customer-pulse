@@ -70,15 +70,26 @@ export function UnifiedSyncDashboard({
     return 'Idle';
   };
 
-  // Calculate overall progress
+  // Calculate overall progress based on actual database counts vs estimated totals
   const getOverallProgress = (): number => {
-    const phases = [
-      userGroupsStatus?.status === 'completed' ? 25 : ((userGroupsStatus as any)?.progress_percentage || 0) * 0.25,
-      customersStatus?.status === 'completed' ? 25 : ((customersStatus as any)?.progress_percentage || 0) * 0.25,
-      bookingsStatus?.status === 'completed' ? 25 : ((bookingsStatus as any)?.progress_percentage || 0) * 0.25,
-      orderLinesStatus?.status === 'completed' ? 25 : ((orderLinesStatus as any)?.progress_percentage || 0) * 0.25,
-    ];
-    return Math.round(phases.reduce((sum, p) => sum + p, 0));
+    // Each phase contributes 25% to the overall progress
+    const phase0Progress = userGroupsStatus?.estimated_total 
+      ? (userGroupsInDb / userGroupsStatus.estimated_total) * 25 
+      : 25; // If no estimate, assume complete
+    
+    const phase1Progress = customersStatus?.estimated_total 
+      ? (customersInDb / customersStatus.estimated_total) * 25 
+      : 25; // If no estimate, assume complete
+    
+    const phase2Progress = bookingsStatus?.estimated_total 
+      ? (bookingsInDb / bookingsStatus.estimated_total) * 25 
+      : 0; // If no estimate, assume 0
+    
+    const phase3Progress = expectedOrderLines > 0
+      ? (orderLinesInDb / expectedOrderLines) * 25
+      : 0; // If no expected lines, assume 0
+    
+    return Math.round(Math.min(phase0Progress + phase1Progress + phase2Progress + phase3Progress, 100));
   };
 
   // Get last update time
