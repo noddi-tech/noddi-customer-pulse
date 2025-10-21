@@ -320,7 +320,10 @@ export function UnifiedSyncDashboard({
                 <div className="flex items-center gap-2">
                   {orderLinesStatus?.status === 'completed' ? (
                     <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  ) : orderLinesStatus?.status === 'running' ? (
+                  ) : (orderLinesStatus?.status === 'running' || 
+                       (orderLinesStatus?.status === 'pending' && 
+                        orderLinesStatus?.sync_mode === 'full' && 
+                        ((orderLinesStatus as any)?.progress_percentage || 0) > 0)) ? (
                     <RefreshCw className="h-4 w-4 animate-spin text-primary" />
                   ) : (
                     <Clock className="h-4 w-4 text-muted-foreground" />
@@ -336,14 +339,15 @@ export function UnifiedSyncDashboard({
                 <div className="text-xs text-muted-foreground pl-6">
                   ✓ {orderLinesInDb.toLocaleString()} records in database
                 </div>
-              ) : orderLinesStatus?.status === 'running' ? (
+              ) : (orderLinesStatus?.status === 'running' || 
+                   (orderLinesStatus?.status === 'pending' && 
+                    orderLinesStatus?.sync_mode === 'full' && 
+                    ((orderLinesStatus as any)?.progress_percentage || 0) > 0)) ? (
                 <>
                   <Progress value={(orderLinesStatus as any)?.progress_percentage || 0} className="h-2" />
                   <div className="text-xs text-muted-foreground pl-6">
                     {orderLinesInDb.toLocaleString()} / {expectedOrderLines.toLocaleString()} records
-                    {getEstimatedTime(orderLinesStatus) && (
-                      <span className="ml-2">• {getEstimatedTime(orderLinesStatus)} remaining</span>
-                    )}
+                    <span className="ml-2">• {((orderLinesStatus as any)?.progress_percentage || 0)}% complete</span>
                   </div>
                 </>
               ) : (
