@@ -1,4 +1,4 @@
-// Version: 1.0.2 - Fixed updated_at column error
+// Version: 1.0.3 - Reset max_id_seen for order_lines
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.75.0";
 
 const corsHeaders = {
@@ -17,7 +17,7 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    console.log('[DEPLOY-CHECK] Force full sync v1.0.1 deployed successfully');
+    console.log('[DEPLOY-CHECK] Force full sync v1.0.3 deployed successfully');
     
     const { resource, trigger_sync = true } = await req.json();
     
@@ -45,7 +45,8 @@ Deno.serve(async (req) => {
         high_watermark: '1970-01-01T00:00:00+00:00',
         status: 'pending',
         error_message: null,
-        progress_percentage: 0
+        progress_percentage: 0,
+        max_id_seen: 0
       })
       .eq('resource', resource);
 
