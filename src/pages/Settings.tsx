@@ -215,6 +215,7 @@ export default function Settings() {
         status: 'pending',
         error_message: null,
         last_run_at: new Date().toISOString(),
+        max_id_seen: 0,
       }, { onConflict: 'resource' });
 
       if (error) {
