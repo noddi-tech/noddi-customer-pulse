@@ -451,7 +451,7 @@ Deno.serve(async (req) => {
       
       const userGroupsSyncMode = userGroupsState.sync_mode || 'initial';
       const userGroupsStartPage = userGroupsState.current_page || 0;
-      const userGroupsMaxPages = 10; // Process 10 pages max per invocation
+      const userGroupsMaxPages = 30; // Process 30 pages max per invocation (optimized for API rate limit)
       
       let userGroupsFetched = 0;
       let userGroupsPages = 0;
@@ -569,7 +569,7 @@ Deno.serve(async (req) => {
         console.log(`[PHASE 1] Resuming full sync from page ${membersCurrentPage}`);
       }
       
-      const membersMaxPages = 10;
+      const membersMaxPages = 50; // Process 50 pages max per invocation (optimized for API rate limit)
       
       let membersFetched = 0;
       let membersPages = 0;
@@ -681,7 +681,7 @@ Deno.serve(async (req) => {
       
       const bookingsSyncMode = bookingsState.sync_mode || 'initial';
       const bookingsCurrentPage = bookingsState.current_page || 0;
-      const bookingsMaxPages = 10;
+      const bookingsMaxPages = 60; // Process 60 pages max per invocation (optimized for API rate limit)
       
       let bookingsFetched = 0;
       let bookingPages = 0;
