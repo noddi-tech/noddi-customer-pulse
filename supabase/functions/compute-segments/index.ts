@@ -77,9 +77,10 @@ serve(async (req) => {
     console.log("[compute] Fetching unique user_group_ids from bookings...");
     
     const { data: userGroupIds } = await sb
-      .from("bookings")
+      .from("active_bookings")
       .select("user_group_id")
-      .not("user_group_id", "is", null);
+      .not("user_group_id", "is", null)
+      .limit(100000); // Ensure we get ALL customers
     
     const uniqueUserGroupIds = [...new Set((userGroupIds || []).map(b => b.user_group_id))];
     console.log(`[compute] Found ${uniqueUserGroupIds.length} unique user_groups (customers)`);

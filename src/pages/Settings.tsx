@@ -513,12 +513,12 @@ export default function Settings() {
 
           {/* Unified Sync Dashboard - Single source of truth */}
           <UnifiedSyncDashboard
-            userGroupsStatus={userGroupsStatus}
-            customersStatus={customersStatus}
+            customersStatus={userGroupsStatus}      // Map old prop to new name
+            membersStatus={customersStatus}         // Map old prop to new name
             bookingsStatus={bookingsStatus}
             orderLinesStatus={orderLinesStatus}
-            userGroupsInDb={dbCounts?.user_groups_total || 0}
-            customersInDb={dbCounts?.customers_total || 0}
+            customersInDb={dbCounts?.customers_total || 0}   // Use renamed field
+            membersInDb={dbCounts?.members_total || 0}       // Use renamed field
             bookingsInDb={dbCounts?.bookings_total || 0}
             orderLinesInDb={dbCounts?.order_lines_total || 0}
             expectedOrderLines={Math.round(expectedOrderLines)}
@@ -673,10 +673,10 @@ export default function Settings() {
                 <AlertDescription>
                   This will permanently delete ALL synced data from your database:
                   <ul className="list-disc list-inside mt-2 space-y-1">
-                    <li>All customers ({(dbCounts?.customers_total || 0).toLocaleString()})</li>
+                    <li>All members ({(dbCounts?.members_total || 0).toLocaleString()})</li>
                     <li>All bookings ({(dbCounts?.bookings_total || 0).toLocaleString()})</li>
                     <li>All order lines ({(dbCounts?.order_lines_total || 0).toLocaleString()})</li>
-                    <li>All user groups ({(dbCounts?.user_groups_total || 0).toLocaleString()})</li>
+                    <li>All customers ({(dbCounts?.customers_total || 0).toLocaleString()})</li>
                     <li>All features and segments</li>
                   </ul>
                   <p className="mt-2 font-semibold">You will need to run a full sync afterward to repopulate the database.</p>
@@ -705,10 +705,10 @@ export default function Settings() {
                         This will permanently delete all synced data including:
                       </p>
                       <ul className="list-disc list-inside space-y-1">
-                        <li>{(dbCounts?.customers_total || 0).toLocaleString()} customers</li>
+                        <li>{(dbCounts?.members_total || 0).toLocaleString()} members</li>
                         <li>{(dbCounts?.bookings_total || 0).toLocaleString()} bookings</li>
                         <li>{(dbCounts?.order_lines_total || 0).toLocaleString()} order lines</li>
-                        <li>{(dbCounts?.user_groups_total || 0).toLocaleString()} user groups</li>
+                        <li>{(dbCounts?.customers_total || 0).toLocaleString()} customers</li>
                         <li>All features and segments</li>
                       </ul>
                       <p className="mt-4">

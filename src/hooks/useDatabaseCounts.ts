@@ -41,15 +41,21 @@ export function useDatabaseCounts() {
       
       return {
         // Total counts (all data imported)
-        customers_total: customersTotal.count || 0,
-        user_groups_total: userGroupsTotal.count || 0,
-        bookings_total: bookingsTotalCount,
-        order_lines_total: orderLinesTotalCount,
+        members_total: customersTotal.count || 0,           // Renamed - from customers table
+        customers_total: userGroupsTotal.count || 0,        // Renamed - from user_groups table
+        user_groups_total: userGroupsTotal.count || 0,      // Keep for backward compatibility
         
-        // Active user group counts (household-level)
+        // Active customer counts (household-level)
+        customers_active: (userGroupsActiveRaw.data as number) || 0,  // Renamed
+        customers_b2b: userGroupsB2B.count || 0,                      // Renamed
+        customers_b2c: userGroupsB2C.count || 0,                      // Renamed
+        
+        // Legacy names for backward compatibility
         user_groups_active: (userGroupsActiveRaw.data as number) || 0,
         user_groups_b2b: userGroupsB2B.count || 0,
         user_groups_b2c: userGroupsB2C.count || 0,
+        bookings_total: bookingsTotalCount,
+        order_lines_total: orderLinesTotalCount,
         
         // Active counts (business logic filtered)
         bookings: bookingsActiveCount,

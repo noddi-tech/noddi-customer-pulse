@@ -27,12 +27,12 @@ interface DiagnosticResource {
 }
 
 interface UnifiedSyncDashboardProps {
-  userGroupsStatus?: PhaseStatus;
-  customersStatus?: PhaseStatus;
+  customersStatus?: PhaseStatus;   // Renamed from userGroupsStatus
+  membersStatus?: PhaseStatus;      // Renamed from customersStatus
   bookingsStatus?: PhaseStatus;
   orderLinesStatus?: PhaseStatus;
-  userGroupsInDb: number;
-  customersInDb: number;
+  customersInDb: number;            // Renamed from userGroupsInDb
+  membersInDb: number;              // Renamed from customersInDb
   bookingsInDb: number;
   orderLinesInDb: number;
   expectedOrderLines: number;
@@ -46,12 +46,12 @@ interface UnifiedSyncDashboardProps {
 }
 
 export function UnifiedSyncDashboard({
-  userGroupsStatus,
-  customersStatus,
+  customersStatus,  // Renamed
+  membersStatus,    // Renamed
   bookingsStatus,
   orderLinesStatus,
-  userGroupsInDb,
-  customersInDb,
+  customersInDb,    // Renamed
+  membersInDb,      // Renamed
   bookingsInDb,
   orderLinesInDb,
   expectedOrderLines,
@@ -63,8 +63,8 @@ export function UnifiedSyncDashboard({
   
   // Determine active phase
   const getActivePhase = (): string => {
-    if (userGroupsStatus?.status === 'running') return 'Phase 0: User Groups';
-    if (customersStatus?.status === 'running') return 'Phase 1: Members';
+    if (customersStatus?.status === 'running') return 'Phase 0: Customers';  // Renamed
+    if (membersStatus?.status === 'running') return 'Phase 1: Members';      // Renamed
     if (bookingsStatus?.status === 'running') return 'Phase 2: Bookings';
     if (orderLinesStatus?.status === 'running') return 'Phase 3: Order Lines';
     
@@ -81,12 +81,12 @@ export function UnifiedSyncDashboard({
   // Calculate overall progress based on actual database counts vs estimated totals
   const getOverallProgress = (): number => {
     // Each phase contributes 25% to the overall progress
-    const phase0Progress = userGroupsStatus?.estimated_total 
-      ? (userGroupsInDb / userGroupsStatus.estimated_total) * 25 
+    const phase0Progress = customersStatus?.estimated_total   // Renamed
+      ? (customersInDb / customersStatus.estimated_total) * 25 
       : 25; // If no estimate, assume complete
     
-    const phase1Progress = customersStatus?.estimated_total 
-      ? (customersInDb / customersStatus.estimated_total) * 25 
+    const phase1Progress = membersStatus?.estimated_total     // Renamed
+      ? (membersInDb / membersStatus.estimated_total) * 25 
       : 25; // If no estimate, assume complete
     
     const phase2Progress = bookingsStatus?.estimated_total 
@@ -103,8 +103,8 @@ export function UnifiedSyncDashboard({
   // Get last update time
   const getLastUpdate = (): Date | null => {
     const times = [
-      userGroupsStatus?.last_run_at,
-      customersStatus?.last_run_at,
+      customersStatus?.last_run_at,  // Renamed
+      membersStatus?.last_run_at,    // Renamed
       bookingsStatus?.last_run_at,
       orderLinesStatus?.last_run_at
     ].filter(Boolean).map(t => new Date(t!));
@@ -184,39 +184,39 @@ export function UnifiedSyncDashboard({
         <div className="space-y-4 pt-2">
           <h4 className="text-sm font-semibold text-muted-foreground">Phase Progress (Sequential):</h4>
           
-          {/* Phase 0: User Groups */}
+          {/* Phase 0: Customers (formerly User Groups) */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
               <div className="flex items-center gap-2">
-                {userGroupsStatus?.status === 'completed' ? (
+                {customersStatus?.status === 'completed' ? (
                   <CheckCircle2 className="h-4 w-4 text-green-600" />
-                ) : userGroupsStatus?.status === 'running' ? (
+                ) : customersStatus?.status === 'running' ? (
                   <RefreshCw className="h-4 w-4 animate-spin text-primary" />
                 ) : (
                   <Clock className="h-4 w-4 text-muted-foreground" />
                 )}
-                <span className="font-medium">Phase 0: User Groups</span>
+                <span className="font-medium">Phase 0: Customers</span>
               </div>
               <span className="text-xs text-muted-foreground">
-                {userGroupsStatus?.sync_mode === 'full' ? 'Full sync' : 'Incremental'}
+                {customersStatus?.sync_mode === 'full' ? 'Full sync' : 'Incremental'}
               </span>
             </div>
             
-            {userGroupsStatus?.status === 'completed' ? (
+            {customersStatus?.status === 'completed' ? (
               <div className="text-xs text-muted-foreground pl-6">
-                ✓ {userGroupsInDb.toLocaleString()} records in database
+                ✓ {customersInDb.toLocaleString()} records in database
               </div>
-            ) : userGroupsStatus?.status === 'running' ? (
+            ) : customersStatus?.status === 'running' ? (
               <>
-                <Progress value={(userGroupsStatus as any)?.progress_percentage || 0} className="h-2" />
+                <Progress value={(customersStatus as any)?.progress_percentage || 0} className="h-2" />
                 <div className="text-xs text-muted-foreground pl-6">
-                  {userGroupsInDb.toLocaleString()} / {userGroupsStatus.estimated_total?.toLocaleString() || 0} records
-                  {getEstimatedTime(userGroupsStatus) && (
-                    <span className="ml-2">• {getEstimatedTime(userGroupsStatus)} remaining</span>
+                  {customersInDb.toLocaleString()} / {customersStatus.estimated_total?.toLocaleString() || 0} records
+                  {getEstimatedTime(customersStatus) && (
+                    <span className="ml-2">• {getEstimatedTime(customersStatus)} remaining</span>
                   )}
                 </div>
                 <div className="text-xs text-muted-foreground pl-6 opacity-70">
-                  Current run: +{userGroupsStatus.rows_fetched?.toLocaleString() || 0} fetched (page {userGroupsStatus.current_page})
+                  Current run: +{customersStatus.rows_fetched?.toLocaleString() || 0} fetched (page {customersStatus.current_page})
                 </div>
               </>
             ) : (
@@ -225,13 +225,13 @@ export function UnifiedSyncDashboard({
           </div>
 
           {/* Phase 1: Members - Only show if Phase 0 is completed */}
-          {userGroupsStatus?.status === 'completed' && (
+          {customersStatus?.status === 'completed' && (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2">
-                  {customersStatus?.status === 'completed' ? (
+                  {membersStatus?.status === 'completed' ? (
                     <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  ) : customersStatus?.status === 'running' ? (
+                  ) : membersStatus?.status === 'running' ? (
                     <RefreshCw className="h-4 w-4 animate-spin text-primary" />
                   ) : (
                     <Clock className="h-4 w-4 text-muted-foreground" />
@@ -239,37 +239,37 @@ export function UnifiedSyncDashboard({
                   <span className="font-medium">Phase 1: Members</span>
                 </div>
                 <span className="text-xs text-muted-foreground">
-                  {customersStatus?.sync_mode === 'full' ? 'Full sync' : 'Incremental'}
+                  {membersStatus?.sync_mode === 'full' ? 'Full sync' : 'Incremental'}
                 </span>
               </div>
               
-              {customersStatus?.status === 'completed' ? (
+              {membersStatus?.status === 'completed' ? (
                 <div className="text-xs text-muted-foreground pl-6">
-                  ✓ {customersInDb.toLocaleString()} records in database
+                  ✓ {membersInDb.toLocaleString()} records in database
                 </div>
-              ) : customersStatus?.status === 'running' ? (
+              ) : membersStatus?.status === 'running' ? (
                 <>
-                  <Progress value={(customersStatus as any)?.progress_percentage || 0} className="h-2" />
+                  <Progress value={(membersStatus as any)?.progress_percentage || 0} className="h-2" />
                   <div className="text-xs text-muted-foreground pl-6">
-                    {customersInDb.toLocaleString()} / {customersStatus.estimated_total?.toLocaleString() || 0} records
-                    {getEstimatedTime(customersStatus) && (
-                      <span className="ml-2">• {getEstimatedTime(customersStatus)} remaining</span>
+                    {membersInDb.toLocaleString()} / {membersStatus.estimated_total?.toLocaleString() || 0} records
+                    {getEstimatedTime(membersStatus) && (
+                      <span className="ml-2">• {getEstimatedTime(membersStatus)} remaining</span>
                     )}
                   </div>
                   <div className="text-xs text-muted-foreground pl-6 opacity-70">
-                    Current run: +{customersStatus.rows_fetched?.toLocaleString() || 0} fetched (page {customersStatus.current_page})
+                    Current run: +{membersStatus.rows_fetched?.toLocaleString() || 0} fetched (page {membersStatus.current_page})
                   </div>
                 </>
               ) : (
                 <div className="text-xs text-muted-foreground pl-6">
-                  Will start after User Groups complete
+                  Will start after Customers complete
                 </div>
               )}
             </div>
           )}
 
           {/* Phase 2: Bookings - Only show if Phase 1 is completed */}
-          {customersStatus?.status === 'completed' && (
+          {membersStatus?.status === 'completed' && (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2">

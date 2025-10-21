@@ -461,7 +461,7 @@ Deno.serve(async (req) => {
     console.log('[CLEANUP] ✓ All error messages and error statuses cleared');
 
     // ===== PHASE 0: SYNC USER GROUPS (PRIMARY CUSTOMERS) - MUST COMPLETE FIRST =====
-    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 0/4] === Syncing User Groups (Primary Customers) ===`);
+    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 0/4] === Syncing Customers (user_groups table) ===`);
     
     if (userGroupsState.status === 'completed') {
       console.log('[PHASE 0] User Groups already completed, proceeding to Phase 1');
@@ -568,7 +568,7 @@ Deno.serve(async (req) => {
     console.log('[GATE] ✓ User Groups completed, proceeding to Phase 1');
     
     // ===== PHASE 1: SYNC MEMBERS (INDIVIDUAL USERS) - MUST COMPLETE BEFORE BOOKINGS =====
-    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 1/4] === Syncing Members (users) ===`);
+    console.log(`\n[DEPLOYMENT ${DEPLOYMENT_VERSION}] [PHASE 1/4] === Syncing Members (customers table) ===`);
     
     if (membersState.status === 'completed') {
       console.log('[PHASE 1] Members already completed, proceeding to Phase 2');
@@ -1005,8 +1005,8 @@ Deno.serve(async (req) => {
     ]);
     
     const health = {
-      customers_total: customersCount.count || 0,
-      customers_with_bookings: bookingsWithUser.count || 0,
+      members_total: customersCount.count || 0,           // Renamed
+      members_with_bookings: bookingsWithUser.count || 0, // Renamed
       bookings_total: bookingsCount.count || 0,
       order_lines_total: orderLinesCount.count || 0,
       avg_order_lines_per_booking: bookingsCount.count ? (orderLinesCount.count || 0) / bookingsCount.count : 0,
@@ -1032,7 +1032,7 @@ Deno.serve(async (req) => {
     
     const healthReport = {
       ...health,
-      user_groups_synced: finalUserGroupsState.rows_fetched || 0,
+      customers_synced: finalUserGroupsState.rows_fetched || 0,  // Renamed from user_groups_synced
       members_synced: finalMembersState.rows_fetched || 0,
       bookings_synced: finalBookingsState.rows_fetched || 0,
       order_lines_extracted: finalOrderLinesState.rows_fetched || 0

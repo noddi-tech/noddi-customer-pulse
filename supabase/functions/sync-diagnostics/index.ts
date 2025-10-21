@@ -64,8 +64,8 @@ Deno.serve(async (req) => {
     }
 
     const apiTotals = {
-      user_groups: (await userGroupsRes.json()).count || 0,
-      customers: (await usersRes.json()).count || 0,
+      customers: (await userGroupsRes.json()).count || 0,  // Renamed - user_groups ARE customers
+      members: (await usersRes.json()).count || 0,         // Renamed - users ARE members
       bookings: (await bookingsRes.json()).count || 0
     };
 
@@ -144,8 +144,8 @@ Deno.serve(async (req) => {
 
     // Build diagnostics
     const resources = {
-      user_groups: createDiagnostic('user_groups', apiTotals.user_groups, dbUserGroups || 0),
-      customers: createDiagnostic('customers', apiTotals.customers, dbCustomers || 0),
+      customers: createDiagnostic('customers', apiTotals.customers, dbUserGroups || 0),  // Changed mapping
+      members: createDiagnostic('members', apiTotals.members, dbCustomers || 0),         // Changed mapping
       bookings: createDiagnostic('bookings', apiTotals.bookings, dbBookings || 0),
       order_lines: {
         api_total: 0, // No direct API endpoint
