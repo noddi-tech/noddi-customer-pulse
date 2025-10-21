@@ -117,13 +117,25 @@ export type Database = {
         Row: {
           computed_at: string | null
           discount_share_24m: number | null
+          frequency_12m: number | null
           frequency_24m: number | null
+          frequency_36m: number | null
+          frequency_48m: number | null
+          frequency_lifetime: number | null
           fully_paid_rate: number | null
           last_booking_at: string | null
           last_dekkskift_at: string | null
+          margin_12m: number | null
           margin_24m: number | null
+          margin_36m: number | null
+          margin_48m: number | null
+          margin_lifetime: number | null
           recency_days: number | null
+          revenue_12m: number | null
           revenue_24m: number | null
+          revenue_36m: number | null
+          revenue_48m: number | null
+          revenue_lifetime: number | null
           seasonal_due_at: string | null
           service_counts: Json | null
           service_tags_all: Json | null
@@ -134,13 +146,25 @@ export type Database = {
         Insert: {
           computed_at?: string | null
           discount_share_24m?: number | null
+          frequency_12m?: number | null
           frequency_24m?: number | null
+          frequency_36m?: number | null
+          frequency_48m?: number | null
+          frequency_lifetime?: number | null
           fully_paid_rate?: number | null
           last_booking_at?: string | null
           last_dekkskift_at?: string | null
+          margin_12m?: number | null
           margin_24m?: number | null
+          margin_36m?: number | null
+          margin_48m?: number | null
+          margin_lifetime?: number | null
           recency_days?: number | null
+          revenue_12m?: number | null
           revenue_24m?: number | null
+          revenue_36m?: number | null
+          revenue_48m?: number | null
+          revenue_lifetime?: number | null
           seasonal_due_at?: string | null
           service_counts?: Json | null
           service_tags_all?: Json | null
@@ -151,13 +175,25 @@ export type Database = {
         Update: {
           computed_at?: string | null
           discount_share_24m?: number | null
+          frequency_12m?: number | null
           frequency_24m?: number | null
+          frequency_36m?: number | null
+          frequency_48m?: number | null
+          frequency_lifetime?: number | null
           fully_paid_rate?: number | null
           last_booking_at?: string | null
           last_dekkskift_at?: string | null
+          margin_12m?: number | null
           margin_24m?: number | null
+          margin_36m?: number | null
+          margin_48m?: number | null
+          margin_lifetime?: number | null
           recency_days?: number | null
+          revenue_12m?: number | null
           revenue_24m?: number | null
+          revenue_36m?: number | null
+          revenue_48m?: number | null
+          revenue_lifetime?: number | null
           seasonal_due_at?: string | null
           service_counts?: Json | null
           service_tags_all?: Json | null

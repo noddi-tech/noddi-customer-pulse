@@ -25,13 +25,32 @@ export type Customer = {
   } | null;
   features: {
     last_booking_at: string | null;
+    recency_days: number | null;
+    
+    // Multi-interval RFM metrics for CLV analysis
+    frequency_12m: number | null;
+    revenue_12m: number | null;
+    margin_12m: number | null;
+    
+    frequency_24m: number | null;
     revenue_24m: number | null;
     margin_24m: number | null;
-    frequency_24m: number | null;
-    service_tags_all: any;
-    storage_active: boolean | null;
+    
+    frequency_36m: number | null;
+    revenue_36m: number | null;
+    margin_36m: number | null;
+    
+    frequency_48m: number | null;
+    revenue_48m: number | null;
+    margin_48m: number | null;
+    
+    frequency_lifetime: number | null;
+    revenue_lifetime: number | null;
+    margin_lifetime: number | null;
+    
     discount_share_24m: number | null;
-    recency_days: number | null;
+    storage_active: boolean | null;
+    service_tags_all: any;
   } | null;
 };
 
@@ -77,13 +96,25 @@ export function useCustomers(params?: {
           user_groups!inner(id, name, org_id),
           features!inner(
             last_booking_at,
+            recency_days,
+            frequency_12m,
+            revenue_12m,
+            margin_12m,
+            frequency_24m,
             revenue_24m,
             margin_24m,
-            frequency_24m,
-            service_tags_all,
-            storage_active,
+            frequency_36m,
+            revenue_36m,
+            margin_36m,
+            frequency_48m,
+            revenue_48m,
+            margin_48m,
+            frequency_lifetime,
+            revenue_lifetime,
+            margin_lifetime,
             discount_share_24m,
-            recency_days
+            storage_active,
+            service_tags_all
           )
         `)
         .order("user_group_id");

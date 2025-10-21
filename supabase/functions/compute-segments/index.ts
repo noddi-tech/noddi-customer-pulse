@@ -111,12 +111,11 @@ serve(async (req) => {
     const batchUserGroupIds = uniqueUserGroupIds.slice(batchOffset, batchOffset + batchSize);
     console.log(`[BATCH] Processing ${batchUserGroupIds.length} customers (${batchOffset} to ${batchOffset + batchUserGroupIds.length})`);
     
-    // Optimize: Fetch all bookings for the batch at once
+    // Optimize: Fetch ALL bookings for the batch at once (for complete CLV history)
     const { data: allBookings } = await sb
       .from("bookings")
       .select("id,user_id,user_group_id,started_at,completed_at,date,status_label,is_fully_paid,is_partially_unable_to_complete,is_fully_unable_to_complete")
-      .in("user_group_id", batchUserGroupIds)
-      .gte("started_at", new Date(now.getTime() - 1000 * 60 * 60 * 24 * 365 * 2).toISOString());
+      .in("user_group_id", batchUserGroupIds);
     
     // Group bookings by user_group_id
     const bookingsByUserGroup = new Map<number, any[]>();
@@ -173,21 +172,44 @@ serve(async (req) => {
         
         const recencyDays = lastBookingAt ? Math.floor((now.getTime() - lastBookingAt.getTime()) / 86400000) : null;
         
-        const revenue24 = bookings.reduce((sum, b) => {
-          const lines = linesByBooking.get(b.id) ?? [];
-          return sum + lines.reduce((s, l) => s + Number(l.amount_gross || 0), 0);
-        }, 0);
+        // Define time cutoffs for multi-interval analysis
+        const cutoff12m = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+        const cutoff24m = new Date(now.getTime() - 2 * 365 * 24 * 60 * 60 * 1000);
+        const cutoff36m = new Date(now.getTime() - 3 * 365 * 24 * 60 * 60 * 1000);
+        const cutoff48m = new Date(now.getTime() - 4 * 365 * 24 * 60 * 60 * 1000);
+        
+        // Filter bookings for each interval
+        const getBookingDate = (b: any) => b.date ? new Date(b.date) : b.started_at ? new Date(b.started_at) : b.completed_at ? new Date(b.completed_at) : null;
+        const bookings12m = bookings.filter(b => { const d = getBookingDate(b); return d && d >= cutoff12m; });
+        const bookings24m = bookings.filter(b => { const d = getBookingDate(b); return d && d >= cutoff24m; });
+        const bookings36m = bookings.filter(b => { const d = getBookingDate(b); return d && d >= cutoff36m; });
+        const bookings48m = bookings.filter(b => { const d = getBookingDate(b); return d && d >= cutoff48m; });
+        
+        // Calculate metrics for each interval
+        const calcMetrics = (bks: any[]) => {
+          const freq = bks.length;
+          const rev = bks.reduce((sum, b) => {
+            const lines = linesByBooking.get(b.id) ?? [];
+            return sum + lines.reduce((s, l) => s + Number(l.amount_gross || 0), 0);
+          }, 0);
+          const margin = rev * Number(th.default_margin_pct ?? 25) / 100;
+          return { freq, rev, margin };
+        };
+        
+        const metrics12m = calcMetrics(bookings12m);
+        const metrics24m = calcMetrics(bookings24m);
+        const metrics36m = calcMetrics(bookings36m);
+        const metrics48m = calcMetrics(bookings48m);
+        const metricsLifetime = calcMetrics(bookings);
         
         const discountShare = (() => {
-          const all = bookings.flatMap((b) => linesByBooking.get(b.id) ?? []);
+          const all = bookings24m.flatMap((b) => linesByBooking.get(b.id) ?? []);
           const disc = all.filter((l) => !!l.is_discount).reduce((s, l) => s + Number(l.amount_gross || 0), 0);
           const gross = all.reduce((s, l) => s + Number(l.amount_gross || 0), 0);
           return gross > 0 ? disc / gross : 0;
         })();
         
-        const margin = revenue24 * Number(th.default_margin_pct ?? 25) / 100;
-        
-        // Track metrics per product category
+        // Track metrics per product category (using 24m bookings for consistency)
         const categoryMetrics: Record<string, {
           frequency_24m: number;
           revenue_24m: number;
@@ -208,8 +230,8 @@ serve(async (req) => {
           };
         }
 
-        // Process each booking's order lines for category metrics
-        for (const booking of bookings) {
+        // Process each booking's order lines for category metrics (24m window)
+        for (const booking of bookings24m) {
           const bookingDate = booking.started_at 
             ? new Date(booking.started_at) 
             : booking.date 
@@ -374,9 +396,28 @@ serve(async (req) => {
           seasonal_due_at: due?.toISOString() ?? null,
           storage_active: storageActive,
           recency_days: recencyDays ?? null,
-          frequency_24m: bookings.length,
-          revenue_24m: revenue24,
-          margin_24m: margin,
+          
+          // Multi-interval RFM metrics for CLV analysis
+          frequency_12m: metrics12m.freq,
+          revenue_12m: metrics12m.rev,
+          margin_12m: metrics12m.margin,
+          
+          frequency_24m: metrics24m.freq,
+          revenue_24m: metrics24m.rev,
+          margin_24m: metrics24m.margin,
+          
+          frequency_36m: metrics36m.freq,
+          revenue_36m: metrics36m.rev,
+          margin_36m: metrics36m.margin,
+          
+          frequency_48m: metrics48m.freq,
+          revenue_48m: metrics48m.rev,
+          margin_48m: metrics48m.margin,
+          
+          frequency_lifetime: metricsLifetime.freq,
+          revenue_lifetime: metricsLifetime.rev,
+          margin_lifetime: metricsLifetime.margin,
+          
           discount_share_24m: discountShare,
           fully_paid_rate: bookings.length
             ? bookings.filter((b) => !!b.is_fully_paid).length / bookings.length

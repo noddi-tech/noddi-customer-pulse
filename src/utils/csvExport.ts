@@ -8,12 +8,33 @@ export function exportCustomersToCSV(customers: Customer[], filename?: string) {
     "Members": customer.member_count || 1,
     "Lifecycle": customer.segments?.lifecycle || "",
     "Value Tier": customer.segments?.value_tier || "",
+    
+    // Multi-interval frequency metrics
+    "Orders (12m)": customer.features?.frequency_12m || 0,
     "Orders (24m)": customer.features?.frequency_24m || 0,
-    "Revenue per Order (NOK)": customer.features?.revenue_24m && customer.features?.frequency_24m
+    "Orders (36m)": customer.features?.frequency_36m || 0,
+    "Orders (48m)": customer.features?.frequency_48m || 0,
+    "Orders (Lifetime)": customer.features?.frequency_lifetime || 0,
+    
+    // Multi-interval revenue metrics
+    "Revenue 12m (NOK)": customer.features?.revenue_12m || 0,
+    "Revenue 24m (NOK)": customer.features?.revenue_24m || 0,
+    "Revenue 36m (NOK)": customer.features?.revenue_36m || 0,
+    "Revenue 48m (NOK)": customer.features?.revenue_48m || 0,
+    "Revenue Lifetime (NOK)": customer.features?.revenue_lifetime || 0,
+    
+    // Multi-interval margin metrics
+    "Margin 12m (NOK)": customer.features?.margin_12m || 0,
+    "Margin 24m (NOK)": customer.features?.margin_24m || 0,
+    "Margin 36m (NOK)": customer.features?.margin_36m || 0,
+    "Margin 48m (NOK)": customer.features?.margin_48m || 0,
+    "Margin Lifetime (NOK)": customer.features?.margin_lifetime || 0,
+    
+    // Average order value (24m for consistency)
+    "Avg Order Value (NOK)": customer.features?.revenue_24m && customer.features?.frequency_24m
       ? Math.round(customer.features.revenue_24m / customer.features.frequency_24m)
       : 0,
-    "Total Revenue 24m (NOK)": customer.features?.revenue_24m || 0,
-    "Margin 24m (NOK)": customer.features?.margin_24m || 0,
+    
     "Last Booking": customer.features?.last_booking_at || "",
     "Days Since Booking": customer.features?.recency_days || "",
     "Storage Active": customer.features?.storage_active ? "Yes" : "No",
