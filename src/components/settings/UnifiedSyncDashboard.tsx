@@ -67,6 +67,14 @@ export function UnifiedSyncDashboard({
     if (customersStatus?.status === 'running') return 'Phase 1: Members';
     if (bookingsStatus?.status === 'running') return 'Phase 2: Bookings';
     if (orderLinesStatus?.status === 'running') return 'Phase 3: Order Lines';
+    
+    // Check for active full sync in pending state
+    if (orderLinesStatus?.status === 'pending' && 
+        orderLinesStatus?.sync_mode === 'full' && 
+        (orderLinesStatus?.progress_percentage || 0) > 0) {
+      return 'Phase 3: Order Lines';
+    }
+    
     return 'Idle';
   };
 

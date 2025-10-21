@@ -39,7 +39,8 @@ export function SyncProgressBar({
   // Backend calculates everything - UI just displays
   const actualProgress = progress || 0;
   const isComplete = status === 'completed' || status === 'success';
-  const isRunning = status === 'running';
+  const isRunning = status === 'running' || 
+    (status === 'pending' && syncMode === 'full' && actualProgress > 0);
   const isWaiting = status === 'pending' && actualProgress === 0 && 
     (resource === 'customers' || resource === 'bookings' || resource === 'order_lines');
 

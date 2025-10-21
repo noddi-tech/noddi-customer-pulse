@@ -410,7 +410,8 @@ export default function Settings() {
               bookingsStatus?.status === "completed" &&
               (dbCounts?.order_lines_total || 0) >= expectedOrderLines * 0.9; // At least 90% coverage
 
-            const isRunning = syncStatus?.some((s) => s.status === "running") ?? false;
+            const isRunning = syncStatus?.some((s) => s.status === "running" || 
+              (s.resource === 'order_lines' && s.status === 'pending' && s.sync_mode === 'full' && (s as any).progress_percentage > 0)) ?? false;
             const hasError = syncStatus?.some((s) => s.status === "error") ?? false;
             
             // STEP 3: Fix Phase Completion Logic - only trust actual status='completed'
