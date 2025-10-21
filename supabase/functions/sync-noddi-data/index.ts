@@ -82,6 +82,25 @@ async function* paged(
       if (res.status >= 500) {
         skippedPages.push(page_index);
         consecutiveFailures++;
+        
+        // Enhanced error logging with comprehensive diagnostic information
+        const errorDetails = {
+          timestamp: new Date().toISOString(),
+          resource: path,
+          page_index: page_index,
+          page_size: page_size,
+          sync_mode: syncMode,
+          status_code: res.status,
+          full_url: url,
+          response_body: body.slice(0, 1000), // First 1000 chars to avoid excessive logging
+          consecutive_failures: consecutiveFailures,
+          total_skipped_pages: skippedPages.length,
+          skipped_pages_list: skippedPages.join(', '),
+          max_pages: maxPages,
+          pages_processed_this_run: pagesProcessed
+        };
+        
+        console.error('[500 ERROR DETAILS]', JSON.stringify(errorDetails, null, 2));
         console.warn(`[sync] page ${page_index} -> ${res.status}; skipping (consecutive failures: ${consecutiveFailures})`);
         
         if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {

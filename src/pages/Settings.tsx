@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSettings } from "@/hooks/segmentation";
-import { useSyncNow, useComputeSegments, useTestConnection, useResetDatabase } from "@/hooks/edgeFunctions";
+import { useSyncNow, useComputeSegments, useTestConnection, useResetDatabase, useForceFullSync, useSyncDiagnostics } from "@/hooks/edgeFunctions";
 import { toast } from "sonner";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
@@ -25,6 +25,7 @@ import { SyncCompleteAlert } from "@/components/settings/SyncCompleteAlert";
 import { SyncErrorAlert } from "@/components/settings/SyncErrorAlert";
 import { DiagnosticPanel } from "@/components/settings/DiagnosticPanel";
 import { SyncDiagnosticPanel } from "@/components/settings/SyncDiagnosticPanel";
+import { UnifiedSyncDashboard } from "@/components/settings/UnifiedSyncDashboard";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Info, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -40,6 +41,8 @@ export default function Settings() {
   const computeMutation = useComputeSegments();
   const testMutation = useTestConnection();
   const resetDatabaseMutation = useResetDatabase();
+  const forceFullSyncMutation = useForceFullSync();
+  const { data: syncDiagnostics } = useSyncDiagnostics();
   const queryClient = useQueryClient();
   
   const [confirmDeleteText, setConfirmDeleteText] = useState("");
@@ -543,137 +546,25 @@ export default function Settings() {
                   />
                 ))}
 
-          {/* CONSOLIDATED STATUS - Show once at top */}
-          <Card className="mb-6 border-2">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                {(isCustomersStalled || isBookingsStalled || isOrderLinesStalled) ? (
-                  <AlertCircle className="h-5 w-5 text-destructive" />
-                ) : isRunning ? (
-                  <RefreshCw className="h-5 w-5 animate-spin text-primary" />
-                ) : (
-                  <CheckCircle2 className="h-5 w-5 text-muted-foreground" />
-                )}
-                Sync Status
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {(isCustomersStalled || isBookingsStalled || isOrderLinesStalled) ? (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>⚠️ Sync Appears Stalled</AlertTitle>
-                  <AlertDescription className="space-y-2">
-                    <p>
-                      No database updates in {Math.max(
-                        isCustomersStalled && customersStatus?.last_run_at ? Math.ceil((Date.now() - new Date(customersStatus.last_run_at).getTime()) / 60000) : 0,
-                        isBookingsStalled && bookingsStatus?.last_run_at ? Math.ceil((Date.now() - new Date(bookingsStatus.last_run_at).getTime()) / 60000) : 0,
-                        isOrderLinesStalled && orderLinesStatus?.last_run_at ? Math.ceil((Date.now() - new Date(orderLinesStatus.last_run_at).getTime()) / 60000) : 0
-                      )} minutes. The sync might need a manual restart.
-                    </p>
-                    <div className="mt-3 flex gap-2">
-                      <Button size="sm" onClick={async () => {
-                        await supabase.functions.invoke('sync-noddi-data');
-                        toast.info("Attempting to resume sync...");
-                      }}>
-                        Resume Sync
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => {
-                        window.open('https://supabase.com/dashboard/project/wylrkmtpjodunmnwncej/functions/sync-noddi-data/logs', '_blank');
-                      }}>
-                        View Logs
-                      </Button>
-                    </div>
-                  </AlertDescription>
-                </Alert>
-              ) : isRunning ? (
-                 <div className="space-y-2">
-                   <p className="text-sm font-medium text-green-600 dark:text-green-400">
-                     ✅ Syncing automatically every 2 minutes
-                   </p>
-                   <p className="text-sm text-muted-foreground">
-                     Overall progress: {overallProgress}% | Active Phase: {activePhase}
-                   </p>
-                   <p className="text-sm text-muted-foreground">
-                     You can safely leave this page - sync continues in background.
-                   </p>
-                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Sync is idle. {syncStatus?.some(s => s.status === 'pending') ? 'Next sync in ~2 minutes.' : 'Enable auto-sync to keep data updated.'}
-                </p>
-              )}
-            </CardContent>
-          </Card>
+          {/* Unified Sync Dashboard - Single source of truth */}
+          <UnifiedSyncDashboard
+            userGroupsStatus={userGroupsStatus}
+            customersStatus={customersStatus}
+            bookingsStatus={bookingsStatus}
+            orderLinesStatus={orderLinesStatus}
+            userGroupsInDb={dbCounts?.user_groups_total || 0}
+            customersInDb={dbCounts?.customers_total || 0}
+            bookingsInDb={dbCounts?.bookings_total || 0}
+            orderLinesInDb={dbCounts?.order_lines_total || 0}
+            expectedOrderLines={Math.round(expectedOrderLines)}
+            isRunning={isRunning}
+            diagnostics={syncDiagnostics as any}
+            onFixNow={() => forceFullSyncMutation.mutate({ resource: 'bookings', trigger_sync: true })}
+            onViewLogs={() => window.open('https://supabase.com/dashboard/project/wylrkmtpjodunmnwncej/functions/sync-noddi-data/logs', '_blank')}
+          />
 
-          {/* Sync Health Dashboard - NEW */}
+          {/* Sync Health Dashboard - Separate health monitoring */}
           <SyncDiagnosticPanel />
-
-
-          {/* Full Re-Sync Progress - Visual only, no duplicate messages */}
-          {bookingsStatus?.sync_mode === "full" && bookingsStatus?.status === "running" && bookingsStatus.estimated_total && (
-            <Card className="mb-4 border-blue-500">
-              <CardHeader>
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                  Full Re-Sync Progress
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  <Progress 
-                    value={Math.round(((bookingsStatus.rows_fetched || 0) / bookingsStatus.estimated_total) * 100)} 
-                    className="h-3"
-                  />
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>
-                      {bookingsStatus.rows_fetched || 0} of {bookingsStatus.estimated_total} bookings
-                    </span>
-                    <div className="flex flex-col items-end gap-1">
-                      <span className="font-semibold text-blue-600 dark:text-blue-400">
-                        {Math.round(((bookingsStatus.rows_fetched || 0) / bookingsStatus.estimated_total) * 100)}%
-                      </span>
-                      {bookingsStatus.last_run_at && (
-                        <span className={cn(
-                          "text-[10px]",
-                          isBookingsStalled && "text-red-600 dark:text-red-400 font-semibold"
-                        )}>
-                          Last: {formatDistanceToNow(new Date(bookingsStatus.last_run_at), { addSuffix: true })}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {estimateBookingsTime() && (
-                    <p className="text-xs text-muted-foreground">
-                      ~{Math.ceil((estimateBookingsTime() || 0) / 60)} minutes remaining (this run)
-                    </p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-                
-                <SyncStatusCard
-                  userGroupsProgress={userGroupsProgress}
-                  customersProgress={customersProgress}
-                  bookingsProgress={bookingsProgress}
-                  orderLinesProgress={orderLinesProgress}
-                  userGroupsTotal={userGroupsStatus?.estimated_total}
-                  customersTotal={customersStatus?.estimated_total}
-                  bookingsTotal={bookingsStatus?.estimated_total}
-                  userGroupsInDb={dbCounts?.user_groups_total || 0}
-                  customersInDb={dbCounts?.customers_total || 0}
-                  bookingsInDb={dbCounts?.bookings_total || 0}
-                  orderLinesInDb={dbCounts?.order_lines_total || 0}
-                  expectedOrderLines={Math.round(expectedOrderLines)}
-                  isRunning={isRunning}
-                  hasError={hasError}
-                  isComputingSegments={isComputingSegments}
-                  lastComputeTime={lastComputeTime}
-                  userGroupsStatus={userGroupsStatus}
-                  customersStatus={customersStatus}
-                  bookingsStatus={bookingsStatus}
-                  orderLinesStatus={orderLinesStatus}
-                />
 
                 {/* Show sync complete alert when sync is done but segments not computed */}
                 {isSyncComplete && !lastComputeTime && (
@@ -729,79 +620,12 @@ export default function Settings() {
 
                 <Card>
                   <CardHeader>
-                    <CardTitle>Sync Progress</CardTitle>
+                    <CardTitle>Data Metrics</CardTitle>
                     <CardDescription>
-                      Real-time progress tracking - Auto-refreshes every 5 seconds
+                      Database statistics and counts
                     </CardDescription>
                   </CardHeader>
-                   <CardContent className="space-y-4">
-                     {/* STEP 10: Only show progress bars for active/completed phases (sequential) */}
-                     <div className="space-y-4">
-                        {/* Always show User Groups (Phase 0) */}
-                        <div ref={(userGroupsStatus as any)?.progress_percentage && (userGroupsStatus as any).progress_percentage < 100 && isRunning ? setActivePhaseRef : null}>
-                          <SyncProgressBar
-                            resource="user_groups"
-                            progress={(userGroupsStatus as any)?.progress_percentage || 0}
-                            total={userGroupsStatus?.estimated_total}
-                            inDb={dbCounts?.user_groups_total || 0}
-                           status={userGroupsStatus?.status || "pending"}
-                           syncMode={userGroupsStatus?.sync_mode}
-                           currentPage={userGroupsStatus?.current_page}
-                           lastRunAt={userGroupsStatus?.last_run_at ? new Date(userGroupsStatus.last_run_at) : null}
-                          />
-                       </div>
-                       
-                        {/* Only show Members if User Groups is completed */}
-                        {userGroupsStatus?.status === 'completed' && (
-                          <div ref={(customersStatus as any)?.progress_percentage && (customersStatus as any).progress_percentage < 100 && isRunning ? setActivePhaseRef : null}>
-                            <SyncProgressBar
-                              resource="customers"
-                              progress={(customersStatus as any)?.progress_percentage || 0}
-                              total={customersStatus?.estimated_total}
-                              inDb={dbCounts?.customers_total || 0}
-                             status={customersStatus?.status || "pending"}
-                             syncMode={customersStatus?.sync_mode}
-                             currentPage={customersStatus?.current_page}
-                             lastRunAt={customersStatus?.last_run_at ? new Date(customersStatus.last_run_at) : null}
-                           />
-                         </div>
-                       )}
-                       
-                        {/* Only show Bookings if Members is completed */}
-                        {customersStatus?.status === 'completed' && (
-                          <div ref={(bookingsStatus as any)?.progress_percentage && (bookingsStatus as any).progress_percentage < 100 && isRunning ? setActivePhaseRef : null}>
-                            <SyncProgressBar
-                              resource="bookings"
-                              progress={(bookingsStatus as any)?.progress_percentage || 0}
-                              total={bookingsStatus?.estimated_total}
-                              inDb={dbCounts?.bookings_total || 0}
-                             status={bookingsStatus?.status || "pending"}
-                             syncMode={bookingsStatus?.sync_mode}
-                             currentPage={bookingsStatus?.current_page}
-                             lastRunAt={bookingsStatus?.last_run_at ? new Date(bookingsStatus.last_run_at) : null}
-                             estimatedTime={bookingsStatus?.sync_mode === "full" ? estimateBookingsTime() : undefined}
-                           />
-                         </div>
-                       )}
-
-                         {/* Only show Order Lines if Bookings is completed */}
-                         {bookingsStatus?.status === 'completed' && (
-                           <div ref={(orderLinesStatus as any)?.progress_percentage && (orderLinesStatus as any).progress_percentage < 90 && isRunning ? setActivePhaseRef : null}>
-                             <SyncProgressBar
-                               resource="order_lines"
-                               progress={(orderLinesStatus as any)?.progress_percentage || 0}
-                               total={Math.round(expectedOrderLines)}
-                               inDb={dbCounts?.order_lines_total || 0}
-                              status={orderLinesStatus?.status || "pending"}
-                              syncMode={orderLinesStatus?.sync_mode}
-                              currentPage={orderLinesStatus?.current_page}
-                              lastRunAt={orderLinesStatus?.last_run_at ? new Date(orderLinesStatus.last_run_at) : null}
-                              estimatedTime={estimateOrderLinesTime()}
-                            />
-                          </div>
-                        )}
-                    </div>
-
+                  <CardContent>
                     <SyncMetricsCards
                       userGroupsActive={dbCounts?.user_groups_active || 0}
                       userGroupsTotal={dbCounts?.user_groups_total || 0}
@@ -815,21 +639,21 @@ export default function Settings() {
                       expectedOrderLines={Math.round(expectedOrderLines)}
                       lastSync={customersStatus?.last_run_at || null}
                     />
-
-                    <SyncActionButtons
-                      syncState={syncState}
-                      onSyncNow={() => syncMutation.mutate()}
-                      onComputeSegments={handleComputeSegments}
-                      onViewDashboard={() => window.location.href = "/"}
-                      onResetSync={handleResetSync}
-                      onReExtractOrderLines={handleReExtractOrderLines}
-                      isSyncing={syncMutation.isPending || isRunning}
-                      isComputing={isComputingSegments}
-                      phase3Progress={orderLinesProgress}
-                      estimatedTime={estimateOrderLinesTime()}
-                    />
                   </CardContent>
                 </Card>
+
+                <SyncActionButtons
+                  syncState={syncState}
+                  onSyncNow={() => syncMutation.mutate()}
+                  onComputeSegments={handleComputeSegments}
+                  onViewDashboard={() => window.location.href = "/"}
+                  onResetSync={handleResetSync}
+                  onReExtractOrderLines={handleReExtractOrderLines}
+                  isSyncing={syncMutation.isPending || isRunning}
+                  isComputing={isComputingSegments}
+                  phase3Progress={orderLinesProgress}
+                  estimatedTime={estimateOrderLinesTime()}
+                />
               </>
             );
           })()}
