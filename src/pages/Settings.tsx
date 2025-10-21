@@ -153,7 +153,7 @@ export default function Settings() {
       refetch();
       
       // Trigger recomputation
-      await computeMutation.mutateAsync();
+      await computeMutation.mutateAsync({});
     } catch (error) {
       toast.error("Failed to save thresholds");
     }
@@ -488,7 +488,14 @@ export default function Settings() {
               setIsComputingSegments(true);
               const startTime = Date.now();
               try {
-                const result = await computeMutation.mutateAsync();
+                const result = await computeMutation.mutateAsync({
+                  onProgress: (progress, processed, total) => {
+                    toast.info(`Processing: ${processed}/${total} (${progress}%)`, {
+                      id: 'compute-progress',
+                      duration: 1000
+                    });
+                  }
+                });
                 const duration = ((Date.now() - startTime) / 1000).toFixed(1);
                 setLastComputeTime(new Date());
                 toast.success(`Processed ${result.users || 0} customers in ${duration}s`);

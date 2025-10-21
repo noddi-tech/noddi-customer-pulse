@@ -29,10 +29,47 @@ export function useComputeSegments() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke("compute-segments");
-      if (error) throw error;
-      return data;
+    mutationFn: async ({ 
+      onProgress 
+    }: { 
+      onProgress?: (progress: number, processed: number, total: number) => void 
+    } = {}) => {
+      let offset = 0;
+      const batchSize = 1000;
+      let totalProcessed = 0;
+      let totalCustomers = 0;
+      
+      while (true) {
+        // Call edge function with query parameters
+        const response = await fetch(
+          `https://wylrkmtpjodunmnwncej.supabase.co/functions/v1/compute-segments?offset=${offset}&batch_size=${batchSize}`,
+          {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5bHJrbXRwam9kdW5tbnduY2VqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA2MzA1ODAsImV4cCI6MjA3NjIwNjU4MH0.L0tBvJ5tCfKiclLo6q35TIC8gOrxUiQ2tVmk5V2RQpo`,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Batch processing failed: ${errorText}`);
+        }
+        
+        const data = await response.json();
+        
+        totalProcessed += data.batch.processed;
+        totalCustomers = data.batch.total;
+        
+        onProgress?.(data.batch.progress, totalProcessed, totalCustomers);
+        
+        if (!data.batch.hasMore) {
+          return { users: totalProcessed, total: totalCustomers };
+        }
+        
+        offset = data.batch.nextOffset;
+      }
     },
     onSuccess: (data) => {
       toast.success(`Computed segments for ${data.users} customers`);

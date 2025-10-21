@@ -69,7 +69,7 @@ export default function Dashboard() {
 
   const handleRefresh = async () => {
     await syncMutation.mutateAsync();
-    await computeMutation.mutateAsync();
+    await computeMutation.mutateAsync({});
     refetch();
   };
 

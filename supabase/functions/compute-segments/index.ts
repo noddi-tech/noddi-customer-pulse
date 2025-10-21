@@ -55,7 +55,13 @@ serve(async (req) => {
   }
 
   try {
-    console.log("Starting segment computation...");
+    // Parse batch parameters from request
+    const url = new URL(req.url);
+    const batchOffset = parseInt(url.searchParams.get('offset') || '0');
+    const batchSize = parseInt(url.searchParams.get('batch_size') || '1000');
+    const shouldCalculateValueTiers = url.searchParams.get('calculate_tiers') !== 'false';
+    
+    console.log(`[BATCH] Starting batch computation: offset=${batchOffset}, size=${batchSize}`);
     
     // Load thresholds
     const { data: s } = await sb
@@ -64,60 +70,74 @@ serve(async (req) => {
       .eq("key", "thresholds")
       .maybeSingle();
     const th = (s?.value || {}) as Thresholds;
-    console.log("Thresholds:", th);
 
     const now = new Date();
     
-    // Preload storage flags
+    // Preload storage flags (only once, cached for all batches)
     const { data: storage } = await sb.from("storage_status").select("user_group_id, is_active, ended_at");
     const storageMap = new Map<number, { active: boolean; ended_at: string | null }>();
     (storage || []).forEach((r: any) => storageMap.set(r.user_group_id, { active: r.is_active, ended_at: r.ended_at }));
 
-    // Get all unique user_group_ids from bookings table
-    console.log("[compute] Fetching unique user_group_ids from bookings...");
-    
+    // Get all unique user_group_ids - optimized query
     const { data: userGroupIds } = await sb
       .from("active_bookings")
       .select("user_group_id")
       .not("user_group_id", "is", null)
-      .limit(100000); // Ensure we get ALL customers
+      .limit(100000);
     
     const uniqueUserGroupIds = [...new Set((userGroupIds || []).map(b => b.user_group_id))];
-    console.log(`[compute] Found ${uniqueUserGroupIds.length} unique user_groups (customers)`);
+    const totalCustomers = uniqueUserGroupIds.length;
+    console.log(`[compute] Found ${totalCustomers} unique user_groups (customers)`);
     
-    // Process in batches
-    const BATCH = 50;
-    let totalProcessed = 0;
+    // Process only the current batch
+    const batchUserGroupIds = uniqueUserGroupIds.slice(batchOffset, batchOffset + batchSize);
+    console.log(`[BATCH] Processing ${batchUserGroupIds.length} customers (${batchOffset} to ${batchOffset + batchUserGroupIds.length})`);
     
-    for (let i = 0; i < uniqueUserGroupIds.length; i += BATCH) {
-      const batch = uniqueUserGroupIds.slice(i, i + BATCH);
+    // Optimize: Fetch all bookings for the batch at once
+    const { data: allBookings } = await sb
+      .from("bookings")
+      .select("id,user_id,user_group_id,started_at,completed_at,date,status_label,is_fully_paid,is_partially_unable_to_complete,is_fully_unable_to_complete")
+      .in("user_group_id", batchUserGroupIds)
+      .gte("started_at", new Date(now.getTime() - 1000 * 60 * 60 * 24 * 365 * 2).toISOString());
+    
+    // Group bookings by user_group_id
+    const bookingsByUserGroup = new Map<number, any[]>();
+    (allBookings || []).forEach(b => {
+      const arr = bookingsByUserGroup.get(b.user_group_id) || [];
+      arr.push(b);
+      bookingsByUserGroup.set(b.user_group_id, arr);
+    });
+    
+    // Fetch all order lines for these bookings at once
+    const allBookingIds = (allBookings || []).map(b => b.id);
+    const { data: allOrderLines } = await sb
+      .from("order_lines")
+      .select("booking_id,description,amount_gross,amount_vat,currency,is_discount,created_at")
+      .in("booking_id", allBookingIds);
+    
+    // Group order lines by booking_id
+    const linesByBooking = new Map<number, any[]>();
+    (allOrderLines || []).forEach(l => {
+      const arr = linesByBooking.get(l.booking_id) || [];
+      arr.push(l);
+      linesByBooking.set(l.booking_id, arr);
+    });
+    
+    // Process in smaller sub-batches for upserts
+    const SUBBATCH = 100;
+    let batchProcessed = 0;
+    
+    for (let i = 0; i < batchUserGroupIds.length; i += SUBBATCH) {
+      const subbatch = batchUserGroupIds.slice(i, i + SUBBATCH);
       
       const feats: any[] = [];
       const segs: any[] = [];
       
-      // For each user_group, fetch ALL bookings (all members combined)
-      for (const userGroupId of batch) {
-        const cutoffDate = new Date(now.getTime() - 1000 * 60 * 60 * 24 * 365 * 2).toISOString();
-        
-        const { data: bk } = await sb
-          .from("bookings")
-          .select("id,user_id,user_group_id,started_at,completed_at,date,status_label,is_fully_paid,is_partially_unable_to_complete,is_fully_unable_to_complete")
-          .eq("user_group_id", userGroupId)
-          .or(`started_at.gte.${cutoffDate},date.gte.${cutoffDate}`);
+      // Process each user_group using pre-fetched data
+      for (const userGroupId of subbatch) {
+        const bk = bookingsByUserGroup.get(userGroupId);
         
         if (!bk || bk.length === 0) continue;
-        
-        const { data: ol } = await sb
-          .from("order_lines")
-          .select("booking_id,description,amount_gross,amount_vat,currency,is_discount,created_at")
-          .in("booking_id", bk.map((b) => b.id));
-        
-        const linesByBooking = new Map<number, any[]>();
-        (ol || []).forEach((l) => {
-          const a = linesByBooking.get(l.booking_id) ?? [];
-          a.push(l);
-          linesByBooking.set(l.booking_id, a);
-        });
         
         // Calculate features for this user_group (aggregated across all members)
         const bookings = bk;
@@ -370,7 +390,7 @@ serve(async (req) => {
         });
       }
 
-      // Upsert batch
+      // Upsert sub-batch
       if (feats.length > 0) {
         await sb.from("features").upsert(feats, { onConflict: "user_group_id" });
       }
@@ -378,73 +398,101 @@ serve(async (req) => {
         await sb.from("segments").upsert(segs, { onConflict: "user_group_id" });
       }
 
-      totalProcessed += batch.length;
-      console.log(`Processed ${totalProcessed}/${uniqueUserGroupIds.length} user_groups (customers)`);
+      batchProcessed += subbatch.length;
+      if (batchProcessed % 200 === 0) {
+        console.log(`[BATCH] Processed ${batchProcessed}/${batchUserGroupIds.length} in current batch`);
+      }
     }
 
-    console.log(`Total user_groups (customers) processed: ${totalProcessed}`);
+    console.log(`[BATCH] Completed: ${batchProcessed} customers in this batch`);
+    
+    const hasMore = (batchOffset + batchSize) < totalCustomers;
+    const nextOffset = batchOffset + batchSize;
+    const progressPercent = Math.round(((batchOffset + batchProcessed) / totalCustomers) * 100);
 
-    // === PHASE 2: Calculate Value Tiers ===
-    console.log("[value_tier] Computing RFM + Stickiness scores...");
+    // === PHASE 2: Calculate Value Tiers (only on final batch or if explicitly requested) ===
+    if (shouldCalculateValueTiers && !hasMore) {
+      console.log("[value_tier] Computing RFM + Stickiness scores for ALL customers...");
 
-    const { data: allFeats } = await sb.from("features").select("*");
+      const { data: allFeats } = await sb.from("features").select("*");
 
-    if (!allFeats || allFeats.length === 0) {
-      console.log("[value_tier] No features found, skipping value tier calculation");
-      return new Response(
-        JSON.stringify({ success: true, users: totalProcessed }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+      if (!allFeats || allFeats.length === 0) {
+        console.log("[value_tier] No features found, skipping value tier calculation");
+        return new Response(
+          JSON.stringify({ 
+            success: true, 
+            batch: {
+              processed: batchProcessed,
+              offset: batchOffset,
+              total: totalCustomers,
+              hasMore: false,
+              nextOffset,
+              progress: 100
+            }
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
 
-    // Calculate RFM scores
-    const recencies = allFeats.map((f) => f.recency_days ?? 999999).sort((a, b) => a - b);
-    const frequencies = allFeats.map((f) => f.frequency_24m ?? 0).sort((a, b) => a - b);
-    const revenues = allFeats.map((f) => f.revenue_24m ?? 0).sort((a, b) => a - b);
+      // Calculate RFM scores
+      const recencies = allFeats.map((f) => f.recency_days ?? 999999).sort((a, b) => a - b);
+      const frequencies = allFeats.map((f) => f.frequency_24m ?? 0).sort((a, b) => a - b);
+      const revenues = allFeats.map((f) => f.revenue_24m ?? 0).sort((a, b) => a - b);
 
-    const percentile = (arr: number[], val: number) => {
-      const idx = arr.filter((x) => x <= val).length;
-      return idx / arr.length;
-    };
-
-    const valueUpdates = allFeats.map((f) => {
-      const R = 1 - percentile(recencies, f.recency_days ?? 999999);
-      const F = percentile(frequencies, f.frequency_24m ?? 0);
-      const M = percentile(revenues, f.revenue_24m ?? 0);
-
-      // Stickiness boosts
-      const sc = f.service_counts || {};
-      let boost = 0;
-      if (sc.is_storage_customer) boost += 0.15;
-      if (sc.is_fleet_customer) boost += 0.10;
-      if (sc.service_mix_count >= 3) boost += 0.05;
-
-      const finalScore = (R + F + M) / 3 + boost;
-
-      const tier =
-        finalScore >= (th.value_high_percentile ?? 0.8)
-          ? "High"
-          : finalScore >= (th.value_mid_percentile ?? 0.5)
-          ? "Mid"
-          : "Low";
-
-      return {
-        user_id: null,
-        user_group_id: f.user_group_id,
-        value_tier: tier,
+      const percentile = (arr: number[], val: number) => {
+        const idx = arr.filter((x) => x <= val).length;
+        return idx / arr.length;
       };
-    });
 
-    // Update segments with value tiers
-    for (const upd of valueUpdates) {
-      await sb
-        .from("segments")
-        .update({ value_tier: upd.value_tier })
-        .eq("user_group_id", upd.user_group_id);
+      const valueUpdates = allFeats.map((f) => {
+        const R = 1 - percentile(recencies, f.recency_days ?? 999999);
+        const F = percentile(frequencies, f.frequency_24m ?? 0);
+        const M = percentile(revenues, f.revenue_24m ?? 0);
+
+        // Stickiness boosts
+        const sc = f.service_counts || {};
+        let boost = 0;
+        if (sc.is_storage_customer) boost += 0.15;
+        if (sc.is_fleet_customer) boost += 0.10;
+        if (sc.service_mix_count >= 3) boost += 0.05;
+
+        const finalScore = (R + F + M) / 3 + boost;
+
+        const tier =
+          finalScore >= (th.value_high_percentile ?? 0.8)
+            ? "High"
+            : finalScore >= (th.value_mid_percentile ?? 0.5)
+            ? "Mid"
+            : "Low";
+
+        return {
+          user_id: null,
+          user_group_id: f.user_group_id,
+          value_tier: tier,
+        };
+      });
+
+      // Update segments with value tiers
+      for (const upd of valueUpdates) {
+        await sb
+          .from("segments")
+          .update({ value_tier: upd.value_tier })
+          .eq("user_group_id", upd.user_group_id);
+      }
     }
 
     return new Response(
-      JSON.stringify({ success: true, users: totalProcessed }),
+      JSON.stringify({ 
+        success: true, 
+        batch: {
+          processed: batchProcessed,
+          offset: batchOffset,
+          total: totalCustomers,
+          hasMore,
+          nextOffset,
+          progress: progressPercent
+        }
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
