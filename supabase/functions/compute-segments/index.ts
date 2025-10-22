@@ -60,7 +60,7 @@ serve(async (req) => {
     // Parse batch parameters from request
     const url = new URL(req.url);
     const batchOffset = parseInt(url.searchParams.get('offset') || '0');
-    const batchSize = parseInt(url.searchParams.get('batch_size') || '1000');
+    const batchSize = parseInt(url.searchParams.get('batch_size') || '100');
     const shouldCalculateValueTiers = url.searchParams.get('calculate_tiers') !== 'false';
     
     console.log(`[BATCH] Starting batch computation: offset=${batchOffset}, size=${batchSize}`);
@@ -118,7 +118,7 @@ serve(async (req) => {
       .from("bookings")
       .select("id,user_id,user_group_id,started_at,completed_at,date,status_label,is_fully_paid,is_partially_unable_to_complete,is_fully_unable_to_complete")
       .in("user_group_id", batchUserGroupIds)
-      .limit(50000);
+      .limit(110000);
     
     // Group bookings by user_group_id
     const bookingsByUserGroup = new Map<number, any[]>();
@@ -134,7 +134,7 @@ serve(async (req) => {
       .from("order_lines")
       .select("booking_id,description,amount_gross,amount_vat,currency,is_discount,created_at")
       .in("booking_id", allBookingIds)
-      .limit(100000);
+      .limit(150000);
     
     // Group order lines by booking_id
     const linesByBooking = new Map<number, any[]>();
