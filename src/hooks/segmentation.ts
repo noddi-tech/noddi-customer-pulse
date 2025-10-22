@@ -262,3 +262,16 @@ export function useSettings() {
     staleTime: 5 * 60 * 1000,
   });
 }
+
+export function useInactiveCustomerCount() {
+  return useQuery({
+    queryKey: ["inactive-customer-count"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('get_inactive_customer_count');
+      if (error) throw error;
+      return data as number;
+    },
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 30 * 60 * 1000,
+  });
+}

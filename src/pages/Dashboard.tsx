@@ -2,28 +2,36 @@ import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useSegmentCounts } from "@/hooks/segmentation";
+import { useSegmentCounts, useInactiveCustomerCount } from "@/hooks/segmentation";
 import { useSyncNow, useComputeSegments } from "@/hooks/edgeFunctions";
 import { useLifecycleInsights } from "@/hooks/dashboardInsights";
-import { Users, RefreshCw } from "lucide-react";
+import { Users, RefreshCw, UserX } from "lucide-react";
 import { CacheIndicator } from "@/components/CacheIndicator";
 import { LifecycleExplainer } from "@/components/dashboard/LifecycleExplainer";
 import { EnhancedLifecycleCard } from "@/components/dashboard/EnhancedLifecycleCard";
 import { ChurnTimeline } from "@/components/dashboard/ChurnTimeline";
 import { ProductLineStats } from "@/components/dashboard/ProductLineStats";
 import { ActionableInsights } from "@/components/dashboard/ActionableInsights";
+import { 
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { data: counts, refetch, isRefetching, dataUpdatedAt } = useSegmentCounts();
+  const { data: inactiveCount } = useInactiveCustomerCount();
   const { data: insights } = useLifecycleInsights();
   const syncMutation = useSyncNow();
   const computeMutation = useComputeSegments();
 
-  const totalCustomers = counts 
+  const activeCustomers = counts 
     ? (counts.New || 0) + (counts.Active || 0) + (counts['At-risk'] || 0) + 
       (counts.Churned || 0) + (counts.Winback || 0)
     : 0;
+  
+  const totalCustomers = activeCustomers + (inactiveCount || 0);
   
   const getInsightForLifecycle = (lifecycle: string) => {
     return insights?.find((i) => i.lifecycle === lifecycle);
@@ -105,8 +113,40 @@ export default function Dashboard() {
             Total Customers
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <div className="text-4xl font-bold">{totalCustomers.toLocaleString()}</div>
+          
+          <div className="grid grid-cols-2 gap-4 pt-4 border-t">
+            <div>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                <Users className="h-4 w-4" />
+                With Bookings
+              </div>
+              <div className="text-2xl font-semibold">{activeCustomers.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {totalCustomers > 0 ? Math.round((activeCustomers / totalCustomers) * 100) : 0}% of total
+              </p>
+            </div>
+            
+            <div>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                <UserX className="h-4 w-4" />
+                <span>Inactive</span>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <span className="text-xs cursor-help">ℹ️</span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Registered but never booked</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <div className="text-2xl font-semibold">{(inactiveCount || 0).toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {totalCustomers > 0 ? Math.round(((inactiveCount || 0) / totalCustomers) * 100) : 0}% of total
+              </p>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -161,7 +201,7 @@ export default function Dashboard() {
                 <CardContent className="space-y-2">
                   <div className="text-3xl font-bold">{card.count.toLocaleString()}</div>
                   <p className="text-xs text-muted-foreground">
-                    {totalCustomers > 0 ? Math.round((card.count / totalCustomers) * 100) : 0}% of total
+                    {activeCustomers > 0 ? Math.round((card.count / activeCustomers) * 100) : 0}% of customers with bookings
                   </p>
                   {insight && (
                     <div className="mt-3 space-y-1 border-t pt-2 text-xs text-muted-foreground">
