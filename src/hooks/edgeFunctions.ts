@@ -35,11 +35,11 @@ export function useComputeSegments() {
       onProgress?: (progress: number, processed: number, total: number) => void 
     } = {}) => {
       let offset = 0;
-      const batchSize = 1000;
+      const batchSize = 100;
       let totalProcessed = 0;
       let totalCustomers = 0;
       let batchCount = 0;
-      const MAX_BATCHES = 20; // Prevent infinite loop (20 batches * 1000 = 20,000 max customers)
+      const MAX_BATCHES = 120; // Prevent infinite loop (120 batches * 100 = 12,000 max customers)
       
       // Step 1: Clear old segments and features before recomputation
       console.log('[FRONTEND] 🗑️ Clearing old segments and features...');
