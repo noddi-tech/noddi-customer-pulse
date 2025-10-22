@@ -156,17 +156,17 @@ serve(async (req) => {
       for (const userGroupId of subbatch) {
         const bk = bookingsByUserGroup.get(userGroupId);
         
-        // PROCESS ALL CUSTOMERS (even without bookings)
-        const bookings = bk || [];
-        
-        if (bookings.length === 0) {
+        // SKIP user groups without any bookings - they are not customers yet
+        if (!bk || bk.length === 0) {
           skippedNoBookings++;
           if (skippedNoBookings <= 10) {
-            console.log(`[NO BOOKINGS] user_group ${userGroupId}: Will be assigned lifecycle based on creation date`);
+            console.log(`[NO BOOKINGS] user_group ${userGroupId}: Skipped - no purchase history`);
           }
-        } else {
-          processedWithBookings++;
+          continue; // Skip to next user_group
         }
+        
+        processedWithBookings++;
+        const bookings = bk;
         
         // Calculate features for this user_group (aggregated across all members)
         
@@ -384,35 +384,18 @@ serve(async (req) => {
 
         let lifecycle = "Churned";
 
-        // For customers without bookings, check user_group creation date
-        if (bookings.length === 0) {
-          // Query user_group creation date to determine if "New" or "Churned"
-          const { data: userGroupData } = await sb
-            .from("user_groups")
-            .select("created_at")
-            .eq("id", userGroupId)
-            .single();
-          
-          const createdAt = userGroupData?.created_at ? new Date(userGroupData.created_at) : null;
-          const daysSinceCreation = createdAt 
-            ? (now.getTime() - createdAt.getTime()) / 86400000 
-            : Infinity;
-          
-          lifecycle = daysSinceCreation <= (th.new_days ?? 90) ? "New" : "Churned";
-        } else {
-          // Lifecycle based on ANY booking activity
-          if (daysSinceFirstBooking <= (th.new_days ?? 90)) {
-            lifecycle = "New";
-          } else if (storageActive) {
-            lifecycle = "Active";  // Storage customers = recurring relationship
-          } else if (monthsSinceLastBooking <= (th.active_months ?? 7)) {
-            lifecycle = "Active";  // ANY recent booking
-          } else if (monthsSinceLastBooking > (th.at_risk_from_months ?? 7) && 
+        // Lifecycle based on booking activity (all customers now have bookings)
+        if (daysSinceFirstBooking <= (th.new_days ?? 90)) {
+          lifecycle = "New";
+        } else if (storageActive) {
+          lifecycle = "Active";  // Storage customers = recurring relationship
+        } else if (monthsSinceLastBooking <= (th.active_months ?? 7)) {
+          lifecycle = "Active";  // ANY recent booking
+        } else if (monthsSinceLastBooking > (th.at_risk_from_months ?? 7) &&
                      monthsSinceLastBooking <= (th.at_risk_to_months ?? 9)) {
-            lifecycle = "At-risk";
-          } else {
-            lifecycle = "Churned";
-          }
+          lifecycle = "At-risk";
+        } else {
+          lifecycle = "Churned";
         }
         
         feats.push({
@@ -491,7 +474,7 @@ serve(async (req) => {
       }
     }
 
-    console.log(`[BATCH] Completed: ${batchProcessed} customers in this batch`);
+    console.log(`[BATCH STATS] Customers with bookings: ${processedWithBookings}, User groups without bookings (skipped): ${skippedNoBookings}, Total user_groups in batch: ${batchProcessed}\n`);
     
     const hasMore = (batchOffset + batchSize) < totalCustomers;
     const nextOffset = batchOffset + batchSize;
