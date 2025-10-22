@@ -69,15 +69,15 @@ export function EnhancedLifecycleCard({
         <div className="text-3xl font-bold">{count.toLocaleString()}</div>
         <p className="text-xs text-muted-foreground">{percentage}% of total</p>
         
-        {(avgRecencyDays !== undefined || avgFrequency !== undefined || avgRevenue !== undefined) && (
+        {(avgRecencyDays != null || avgFrequency != null || avgRevenue != null) && (
           <div className="mt-3 space-y-1 border-t pt-2 text-xs text-muted-foreground">
-            {avgRecencyDays !== undefined && (
+            {avgRecencyDays != null && (
               <div>Avg last booking: {formatRecency(avgRecencyDays)}</div>
             )}
-            {avgFrequency !== undefined && (
+            {avgFrequency != null && (
               <div>Avg bookings: {avgFrequency.toFixed(1)}/{timePeriod === 0 ? 'lifetime' : `${timePeriod}mo`}</div>
             )}
-            {avgRevenue !== undefined && (
+            {avgRevenue != null && (
               <div>Avg revenue: {avgRevenue.toLocaleString()} NOK/booking (ex VAT)</div>
             )}
           </div>
