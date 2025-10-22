@@ -536,13 +536,24 @@ serve(async (req) => {
         };
       });
 
-      // Update segments with value tiers
-      for (const upd of valueUpdates) {
-        await sb
-          .from("segments")
-          .update({ value_tier: upd.value_tier })
-          .eq("user_group_id", upd.user_group_id);
+      // Update segments with value tiers in batches
+      const UPDATE_BATCH_SIZE = 100;
+      console.log(`[value_tier] Updating ${valueUpdates.length} value tiers in batches of ${UPDATE_BATCH_SIZE}...`);
+
+      for (let i = 0; i < valueUpdates.length; i += UPDATE_BATCH_SIZE) {
+        const batch = valueUpdates.slice(i, i + UPDATE_BATCH_SIZE);
+        
+        await sb.from("segments").upsert(batch, { 
+          onConflict: "user_group_id",
+          ignoreDuplicates: false 
+        });
+        
+        if ((i + UPDATE_BATCH_SIZE) % 1000 === 0 || i + UPDATE_BATCH_SIZE >= valueUpdates.length) {
+          console.log(`[value_tier] Progress: ${Math.min(i + UPDATE_BATCH_SIZE, valueUpdates.length)}/${valueUpdates.length} value tiers updated`);
+        }
       }
+
+      console.log(`[value_tier] ✓ Successfully updated all ${valueUpdates.length} value tiers`);
     }
 
     return new Response(
