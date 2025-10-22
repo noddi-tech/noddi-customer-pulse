@@ -115,7 +115,8 @@ serve(async (req) => {
     const { data: allBookings } = await sb
       .from("bookings")
       .select("id,user_id,user_group_id,started_at,completed_at,date,status_label,is_fully_paid,is_partially_unable_to_complete,is_fully_unable_to_complete")
-      .in("user_group_id", batchUserGroupIds);
+      .in("user_group_id", batchUserGroupIds)
+      .limit(50000);
     
     // Group bookings by user_group_id
     const bookingsByUserGroup = new Map<number, any[]>();
@@ -130,7 +131,8 @@ serve(async (req) => {
     const { data: allOrderLines } = await sb
       .from("order_lines")
       .select("booking_id,description,amount_gross,amount_vat,currency,is_discount,created_at")
-      .in("booking_id", allBookingIds);
+      .in("booking_id", allBookingIds)
+      .limit(100000);
     
     // Group order lines by booking_id
     const linesByBooking = new Map<number, any[]>();
