@@ -477,7 +477,32 @@ serve(async (req) => {
 
       console.log(`[BATCH STATS] Processed: ${processedWithBookings}, Skipped (no bookings): ${skippedNoBookings}, Total in batch: ${batchUserGroupIds.length}`);
       
-      const { data: allFeats } = await sb.from("features").select("*");
+      // Paginate through ALL features (not just 1,000)
+      const allFeats: any[] = [];
+      let featPage = 0;
+      const featPageSize = 1000;
+      let hasMoreFeats = true;
+
+      console.log('[value_tier] Fetching ALL features from database with pagination...');
+      while (hasMoreFeats) {
+        const { data: featsChunk } = await sb
+          .from("features")
+          .select("*")
+          .range(featPage * featPageSize, (featPage + 1) * featPageSize - 1);
+        
+        if (featsChunk && featsChunk.length > 0) {
+          allFeats.push(...featsChunk);
+          console.log(`[value_tier] Fetched page ${featPage + 1}: ${featsChunk.length} features (total so far: ${allFeats.length})`);
+          featPage++;
+          if (featsChunk.length < featPageSize) {
+            hasMoreFeats = false;
+          }
+        } else {
+          hasMoreFeats = false;
+        }
+      }
+
+      console.log(`[value_tier] ✓ Loaded ${allFeats.length} total features for value tier calculation`);
 
       if (!allFeats || allFeats.length === 0) {
         console.log("[value_tier] No features found, skipping value tier calculation");
