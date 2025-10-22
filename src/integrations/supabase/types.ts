@@ -591,6 +591,10 @@ export type Database = {
       }
     }
     Functions: {
+      compute_value_tiers: {
+        Args: { high_threshold?: number; mid_threshold?: number }
+        Returns: Json
+      }
       count_active_user_groups: { Args: never; Returns: number }
       get_churn_timeline: {
         Args: never
