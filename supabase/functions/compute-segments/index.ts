@@ -32,25 +32,6 @@ type Thresholds = {
   value_mid_percentile: number;
 };
 
-function extractTags(text: string): string[] {
-  const t = (text || "").normalize("NFKD").toLowerCase();
-  const rules: [string, RegExp][] = [
-    ["Dekkskift", /\bdekkskift\b|tire change|wheel change|dekk skift/gi],
-    ["Dekkhotell", /\bdekkhotell\b|tire storage|wheel storage/gi],
-    ["Hjemlevering", /\bhjemlever|home delivery/gi],
-    ["Henting", /\bhenting\b|pickup/gi],
-    ["Felgvask", /\bfelgvask\b|rim wash/gi],
-    ["Balansering", /\bbalanser/gi],
-    ["TPMS", /\btpms\b|ventil|valve|sensor/gi],
-    ["Tires", /\b(dekk|tires?|tyres?)\b/gi]
-  ];
-  const out = new Set<string>();
-  for (const [label, rx] of rules) {
-    if (rx.test(t)) out.add(label);
-  }
-  return [...out].sort();
-}
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -132,7 +113,7 @@ serve(async (req) => {
     const allBookingIds = (allBookings || []).map(b => b.id);
     const { data: allOrderLines } = await sb
       .from("order_lines")
-      .select("booking_id,description,amount_gross,amount_vat,currency,is_discount,created_at")
+      .select("booking_id,description,amount_gross,amount_vat,currency,category,is_discount,created_at")
       .in("booking_id", allBookingIds)
       .limit(150000);
     
@@ -248,6 +229,7 @@ serve(async (req) => {
         }
 
         // Process each booking's order lines for category metrics (24m window)
+        // Now using actual category field from Noddi API instead of keyword matching!
         for (const booking of bookings24m) {
           const bookingDate = booking.started_at 
             ? new Date(booking.started_at) 
@@ -264,56 +246,59 @@ serve(async (req) => {
           const lines = linesByBooking.get(booking.id) ?? [];
           
           for (const line of lines) {
-            const desc = String(line.description ?? "").toLowerCase();
-            // Multiply by 0.8 to exclude 25% VAT
-            const amount = Number(line.amount_gross || 0) * 0.8;
-            
             // Skip discounts (already tracked separately)
             if (line.is_discount) continue;
             
-            // Categorize based on description keywords
-            let category = null;
-            if (/dekkskift|tire change|wheel change|felgvask|balanser|tpms|ventil/i.test(desc)) {
-              category = 'WHEEL_CHANGE';
-            } else if (/dekkhotell|tire storage|wheel storage|oppbevaring/i.test(desc)) {
-              category = 'WHEEL_STORAGE';
-            } else if (/vask|wash|rengjøring|clean/i.test(desc)) {
-              category = 'CAR_WASH';
-            } else if (/reparasjon|repair|punkter/i.test(desc)) {
-              category = 'CAR_REPAIR';
-            } else if (/dekk|tire|tyre/i.test(desc)) {
-              category = 'SHOP_TIRE';
+            // Use actual category from Noddi API
+            const apiCategory = line.category;
+            if (!apiCategory) continue;
+            
+            // Multiply by 0.8 to exclude 25% VAT
+            const amount = Number(line.amount_gross || 0) * 0.8;
+            
+            // Map Noddi API categories to our service category buckets
+            let mappedCategory = null;
+            if (apiCategory === 'WHEEL_CHANGE') {
+              mappedCategory = 'WHEEL_CHANGE';
+            } else if (apiCategory === 'WHEEL_STORAGE') {
+              mappedCategory = 'WHEEL_STORAGE';
+            } else if (apiCategory === 'CAR_WASH') {
+              mappedCategory = 'CAR_WASH';
+            } else if (apiCategory === 'CAR_REPAIR') {
+              mappedCategory = 'CAR_REPAIR';
+            } else if (apiCategory === 'SHOP_TIRE') {
+              mappedCategory = 'SHOP_TIRE';
             }
             
-            if (category && categoryMetrics[category]) {
-              categoryMetrics[category].frequency_24m++;
-              categoryMetrics[category].revenue_24m += amount;
-              categoryMetrics[category].margin_24m += amount * (Number(th.default_margin_pct ?? 25) / 100);
+            if (mappedCategory && categoryMetrics[mappedCategory]) {
+              categoryMetrics[mappedCategory].frequency_24m++;
+              categoryMetrics[mappedCategory].revenue_24m += amount;
+              categoryMetrics[mappedCategory].margin_24m += amount * (Number(th.default_margin_pct ?? 25) / 100);
               
               // Track most recent booking for this category
-              if (!categoryMetrics[category].last_booking_at || 
-                  bookingDate > categoryMetrics[category].last_booking_at!) {
-                categoryMetrics[category].last_booking_at = bookingDate;
-                categoryMetrics[category].recency_days = bookingAge;
+              if (!categoryMetrics[mappedCategory].last_booking_at || 
+                  bookingDate > categoryMetrics[mappedCategory].last_booking_at!) {
+                categoryMetrics[mappedCategory].last_booking_at = bookingDate;
+                categoryMetrics[mappedCategory].recency_days = bookingAge;
               }
             }
           }
         }
 
-        // Extract service tags
+        // Extract service tags from all bookings (for backward compatibility in features table)
         const allTags = [
           ...new Set(bookings.flatMap((b) => {
             const lines = linesByBooking.get(b.id) ?? [];
-            return lines.flatMap((l) => extractTags(l.description || ""));
+            return lines.map((l) => l.category).filter(Boolean);
           }))
         ];
 
-        // Detect Dekkskift & last_dekkskift_at
+        // Detect Dekkskift & last_dekkskift_at using category field
         const lastDekkskiftAt = (() => {
           let latest: Date | null = null;
           for (const b of bookings) {
             const lines = linesByBooking.get(b.id) ?? [];
-            if (lines.some((l) => /dekkskift|tire change|wheel change/i.test(String(l.description ?? "")))) {
+            if (lines.some((l) => l.category === 'WHEEL_CHANGE')) {
               const t = b.started_at 
                 ? new Date(b.started_at) 
                 : b.date 

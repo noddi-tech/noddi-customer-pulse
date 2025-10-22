@@ -223,6 +223,7 @@ export type Database = {
           amount_gross: number | null
           amount_vat: number | null
           booking_id: number | null
+          category: string | null
           created_at: string | null
           currency: string | null
           description: string | null
@@ -236,6 +237,7 @@ export type Database = {
           amount_gross?: number | null
           amount_vat?: number | null
           booking_id?: number | null
+          category?: string | null
           created_at?: string | null
           currency?: string | null
           description?: string | null
@@ -249,6 +251,7 @@ export type Database = {
           amount_gross?: number | null
           amount_vat?: number | null
           booking_id?: number | null
+          category?: string | null
           created_at?: string | null
           currency?: string | null
           description?: string | null

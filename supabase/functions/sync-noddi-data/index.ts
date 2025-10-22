@@ -363,6 +363,7 @@ async function upsertOrderLinesFromDbBookings(bookingsBatch: any[]): Promise<num
           amount_gross: amount,
           amount_vat: 0, // Not provided in Noddi API, would need to calculate from VAT rate
           currency: salesItem.price?.currency || 'NOK',
+          category: salesItem.category || null, // Store actual category from Noddi API
           is_discount: salesItem.category === 'DISCOUNT',
           is_delivery_fee: salesItem.category === 'DELIVERY_FEE',
           created_at: salesItem.created_at || bookingItem.created_at || new Date().toISOString()
