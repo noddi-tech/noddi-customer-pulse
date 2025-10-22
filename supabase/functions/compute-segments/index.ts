@@ -375,9 +375,8 @@ serve(async (req) => {
           return "On Schedule";
         })();
         
-        // Calculate lifecycle - handle customers without bookings
+        // Calculate lifecycle - using recencyDays for precision to align with churn timeline
         const daysSinceLastBooking = recencyDays ?? Infinity;
-        const monthsSinceLastBooking = daysSinceLastBooking / 30.4375;
         const daysSinceFirstBooking = firstBookingAt 
           ? (now.getTime() - firstBookingAt.getTime()) / 86400000 
           : Infinity;
@@ -385,17 +384,17 @@ serve(async (req) => {
         let lifecycle = "Churned";
 
         // Lifecycle based on booking activity (all customers now have bookings)
+        // Thresholds: Active ≤213 days (7 months), At-risk 213-269 days, Churned ≥270 days (9 months)
         if (daysSinceFirstBooking <= (th.new_days ?? 90)) {
           lifecycle = "New";
         } else if (storageActive) {
           lifecycle = "Active";  // Storage customers = recurring relationship
-        } else if (monthsSinceLastBooking <= (th.active_months ?? 7)) {
-          lifecycle = "Active";  // ANY recent booking
-        } else if (monthsSinceLastBooking > (th.at_risk_from_months ?? 7) &&
-                     monthsSinceLastBooking <= (th.at_risk_to_months ?? 9)) {
-          lifecycle = "At-risk";
+        } else if (daysSinceLastBooking <= 213) {  // 7 months = 213 days
+          lifecycle = "Active";  // Recent booking activity
+        } else if (daysSinceLastBooking > 213 && daysSinceLastBooking < 270) {  // 213-269 days
+          lifecycle = "At-risk";  // Inactive 7-9 months
         } else {
-          lifecycle = "Churned";
+          lifecycle = "Churned";  // 270+ days inactive (aligns with churn timeline)
         }
         
         feats.push({
