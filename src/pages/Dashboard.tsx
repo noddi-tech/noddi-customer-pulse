@@ -8,6 +8,7 @@ import { useLifecycleInsights } from "@/hooks/dashboardInsights";
 import { Users, RefreshCw, UserX } from "lucide-react";
 import { CacheIndicator } from "@/components/CacheIndicator";
 import { LifecycleExplainer } from "@/components/dashboard/LifecycleExplainer";
+import { ValueTierExplainer } from "@/components/dashboard/ValueTierExplainer";
 import { EnhancedLifecycleCard } from "@/components/dashboard/EnhancedLifecycleCard";
 import { ChurnTimeline } from "@/components/dashboard/ChurnTimeline";
 import { ProductLineStats } from "@/components/dashboard/ProductLineStats";
@@ -179,6 +180,9 @@ export default function Dashboard() {
 
       {/* Actionable Insights */}
       <ActionableInsights />
+
+      {/* Value Tier Explainer */}
+      <ValueTierExplainer />
 
       {/* Value Tier Distribution */}
       <div>
