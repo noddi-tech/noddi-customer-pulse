@@ -143,6 +143,8 @@ serve(async (req) => {
     // Process in smaller sub-batches for upserts
     const SUBBATCH = 100;
     let batchProcessed = 0;
+    let skippedNoBookings = 0;
+    let processedWithBookings = 0;
     
     for (let i = 0; i < batchUserGroupIds.length; i += SUBBATCH) {
       const subbatch = batchUserGroupIds.slice(i, i + SUBBATCH);
@@ -154,7 +156,15 @@ serve(async (req) => {
       for (const userGroupId of subbatch) {
         const bk = bookingsByUserGroup.get(userGroupId);
         
-        if (!bk || bk.length === 0) continue;
+        if (!bk || bk.length === 0) {
+          skippedNoBookings++;
+          if (skippedNoBookings <= 10) {
+            console.log(`[SKIP] user_group ${userGroupId}: bookings=${bk?.length || 0}, exists=${bookingsByUserGroup.has(userGroupId)}`);
+          }
+          continue;
+        }
+        
+        processedWithBookings++;
         
         // Calculate features for this user_group (aggregated across all members)
         const bookings = bk;
@@ -473,6 +483,8 @@ serve(async (req) => {
     if (shouldCalculateValueTiers && !hasMore) {
       console.log("[value_tier] Computing RFM + Stickiness scores for ALL customers...");
 
+      console.log(`[BATCH STATS] Processed: ${processedWithBookings}, Skipped (no bookings): ${skippedNoBookings}, Total in batch: ${batchUserGroupIds.length}`);
+      
       const { data: allFeats } = await sb.from("features").select("*");
 
       if (!allFeats || allFeats.length === 0) {
@@ -481,7 +493,8 @@ serve(async (req) => {
           JSON.stringify({ 
             success: true, 
             batch: {
-              processed: batchProcessed,
+              processed: processedWithBookings,
+              skipped: skippedNoBookings,
               offset: batchOffset,
               total: totalCustomers,
               hasMore: false,
@@ -544,7 +557,8 @@ serve(async (req) => {
       JSON.stringify({ 
         success: true, 
         batch: {
-          processed: batchProcessed,
+          processed: processedWithBookings,
+          skipped: skippedNoBookings,
           offset: batchOffset,
           total: totalCustomers,
           hasMore,
