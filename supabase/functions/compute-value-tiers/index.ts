@@ -16,7 +16,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    console.log("[value_tier] Starting value tier computation for all customers...");
+    console.log("[value_tier] Starting SQL-based value tier computation...");
 
     // Fetch thresholds
     const { data: thresholdData } = await sb
@@ -26,113 +26,100 @@ Deno.serve(async (req) => {
       .single();
 
     const th = thresholdData?.value || {};
-    console.log(`[value_tier] Thresholds: ${JSON.stringify(th)}`);
+    const highThreshold = th.value_high_percentile ?? 0.8;
+    const midThreshold = th.value_mid_percentile ?? 0.5;
 
-    // Paginate through ALL features (not just 1,000)
-    const allFeats: any[] = [];
-    let featPage = 0;
-    const featPageSize = 1000;
-    let hasMoreFeats = true;
+    console.log(`[value_tier] Using thresholds: High >= ${highThreshold}, Mid >= ${midThreshold}`);
 
-    console.log('[value_tier] Fetching ALL features from database with pagination...');
-    while (hasMoreFeats) {
-      const { data: featsChunk } = await sb
-        .from("features")
-        .select("*")
-        .range(featPage * featPageSize, (featPage + 1) * featPageSize - 1);
-      
-      if (featsChunk && featsChunk.length > 0) {
-        allFeats.push(...featsChunk);
-        console.log(`[value_tier] Fetched page ${featPage + 1}: ${featsChunk.length} features (total so far: ${allFeats.length})`);
-        featPage++;
-        if (featsChunk.length < featPageSize) {
-          hasMoreFeats = false;
-        }
-      } else {
-        hasMoreFeats = false;
-      }
-    }
-
-    console.log(`[value_tier] ✓ Loaded ${allFeats.length} total features for value tier calculation`);
-
-    if (!allFeats || allFeats.length === 0) {
-      console.log("[value_tier] No features found, skipping value tier calculation");
-      return new Response(
-        JSON.stringify({ 
-          success: true, 
-          message: "No features found",
-          updated: 0
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Calculate RFM scores
-    const recencies = allFeats.map((f) => f.recency_days ?? 999999).sort((a, b) => a - b);
-    const frequencies = allFeats.map((f) => f.frequency_24m ?? 0).sort((a, b) => a - b);
-    const revenues = allFeats.map((f) => f.revenue_24m ?? 0).sort((a, b) => a - b);
-
-    const percentile = (arr: number[], val: number) => {
-      const idx = arr.filter((x) => x <= val).length;
-      return idx / arr.length;
-    };
-
-    const valueUpdates = allFeats.map((f) => {
-      const R = 1 - percentile(recencies, f.recency_days ?? 999999);
-      const F = percentile(frequencies, f.frequency_24m ?? 0);
-      const M = percentile(revenues, f.revenue_24m ?? 0);
-
-      // Stickiness boosts
-      const sc = f.service_counts || {};
-      let boost = 0;
-      if (sc.is_storage_customer) boost += 0.15;
-      if (sc.is_fleet_customer) boost += 0.10;
-      if (sc.service_mix_count >= 3) boost += 0.05;
-
-      const finalScore = (R + F + M) / 3 + boost;
-
-      const tier =
-        finalScore >= (th.value_high_percentile ?? 0.8)
-          ? "High"
-          : finalScore >= (th.value_mid_percentile ?? 0.5)
-          ? "Mid"
-          : "Low";
-
-      return {
-        user_id: null,
-        user_group_id: f.user_group_id,
-        value_tier: tier,
-      };
+    // Execute SQL-based value tier calculation
+    console.log("[value_tier] Calculating RFM percentiles and updating segments in database...");
+    
+    const { error: sqlError } = await sb.rpc('exec_sql', {
+      sql: `
+        WITH percentiles AS (
+          SELECT
+            percentile_cont(0.2) WITHIN GROUP (ORDER BY recency_days) as r_20,
+            percentile_cont(0.5) WITHIN GROUP (ORDER BY recency_days) as r_50,
+            percentile_cont(0.8) WITHIN GROUP (ORDER BY recency_days) as r_80,
+            percentile_cont(0.5) WITHIN GROUP (ORDER BY frequency_24m) as f_50,
+            percentile_cont(0.8) WITHIN GROUP (ORDER BY frequency_24m) as f_80,
+            percentile_cont(0.5) WITHIN GROUP (ORDER BY revenue_24m) as m_50,
+            percentile_cont(0.8) WITHIN GROUP (ORDER BY revenue_24m) as m_80
+          FROM features
+          WHERE recency_days IS NOT NULL 
+            AND frequency_24m IS NOT NULL 
+            AND revenue_24m IS NOT NULL
+        ),
+        scored_features AS (
+          SELECT 
+            f.user_group_id,
+            -- Calculate normalized RFM scores (0-1 range, inverted for recency)
+            CASE 
+              WHEN f.recency_days <= p.r_20 THEN 1.0
+              WHEN f.recency_days <= p.r_50 THEN 0.7
+              WHEN f.recency_days <= p.r_80 THEN 0.4
+              ELSE 0.1
+            END as r_score,
+            CASE
+              WHEN f.frequency_24m >= p.f_80 THEN 1.0
+              WHEN f.frequency_24m >= p.f_50 THEN 0.5
+              ELSE 0.2
+            END as f_score,
+            CASE
+              WHEN f.revenue_24m >= p.m_80 THEN 1.0
+              WHEN f.revenue_24m >= p.m_50 THEN 0.5
+              ELSE 0.2
+            END as m_score,
+            -- Stickiness boosts
+            COALESCE((CASE WHEN (f.service_counts->>'is_storage_customer')::boolean THEN 0.15 ELSE 0 END), 0) +
+            COALESCE((CASE WHEN (f.service_counts->>'is_fleet_customer')::boolean THEN 0.10 ELSE 0 END), 0) +
+            COALESCE((CASE WHEN COALESCE((f.service_counts->>'service_mix_count')::int, 0) >= 3 THEN 0.05 ELSE 0 END), 0) as boost
+          FROM features f
+          CROSS JOIN percentiles p
+          WHERE f.recency_days IS NOT NULL 
+            AND f.frequency_24m IS NOT NULL 
+            AND f.revenue_24m IS NOT NULL
+        )
+        UPDATE segments s
+        SET 
+          value_tier = CASE
+            WHEN (sf.r_score + sf.f_score + sf.m_score) / 3.0 + sf.boost >= ${highThreshold} THEN 'High'
+            WHEN (sf.r_score + sf.f_score + sf.m_score) / 3.0 + sf.boost >= ${midThreshold} THEN 'Mid'
+            ELSE 'Low'
+          END,
+          updated_at = now()
+        FROM scored_features sf
+        WHERE s.user_group_id = sf.user_group_id;
+      `
     });
 
-    // Update segments with value tiers in batches
-    const UPDATE_BATCH_SIZE = 100;
-    console.log(`[value_tier] Updating ${valueUpdates.length} value tiers in batches of ${UPDATE_BATCH_SIZE}...`);
-
-    for (let i = 0; i < valueUpdates.length; i += UPDATE_BATCH_SIZE) {
-      const batch = valueUpdates.slice(i, i + UPDATE_BATCH_SIZE);
-      
-      await sb.from("segments").upsert(batch, { 
-        onConflict: "user_group_id",
-        ignoreDuplicates: false 
-      });
-      
-      if ((i + UPDATE_BATCH_SIZE) % 1000 === 0 || i + UPDATE_BATCH_SIZE >= valueUpdates.length) {
-        console.log(`[value_tier] Progress: ${Math.min(i + UPDATE_BATCH_SIZE, valueUpdates.length)}/${valueUpdates.length} value tiers updated`);
-      }
+    if (sqlError) {
+      console.error("[value_tier] SQL execution error:", sqlError);
+      throw sqlError;
     }
 
-    console.log(`[value_tier] ✓ Successfully updated all ${valueUpdates.length} value tiers`);
+    console.log("[value_tier] ✓ SQL-based value tier calculation completed");
+
+    // Get distribution counts
+    const { data: distribution } = await sb
+      .from("segments")
+      .select("value_tier")
+      .not("value_tier", "is", null);
+
+    const counts = {
+      High: distribution?.filter(s => s.value_tier === "High").length || 0,
+      Mid: distribution?.filter(s => s.value_tier === "Mid").length || 0,
+      Low: distribution?.filter(s => s.value_tier === "Low").length || 0,
+    };
+
+    const totalUpdated = counts.High + counts.Mid + counts.Low;
+    console.log(`[value_tier] ✓ Updated ${totalUpdated} customers with distribution:`, counts);
 
     return new Response(
       JSON.stringify({ 
         success: true, 
-        updated: valueUpdates.length,
-        distribution: {
-          High: valueUpdates.filter(u => u.value_tier === "High").length,
-          Mid: valueUpdates.filter(u => u.value_tier === "Mid").length,
-          Low: valueUpdates.filter(u => u.value_tier === "Low").length,
-        }
+        updated: totalUpdated,
+        distribution: counts
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
