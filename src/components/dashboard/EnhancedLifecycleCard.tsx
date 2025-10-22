@@ -76,7 +76,7 @@ export function EnhancedLifecycleCard({
               <div>Avg bookings: {avgFrequency.toFixed(1)}/24mo</div>
             )}
             {avgRevenue !== undefined && (
-              <div>Avg revenue: {avgRevenue.toLocaleString()} NOK</div>
+              <div>Avg revenue: {avgRevenue.toLocaleString()} NOK/booking (ex VAT)</div>
             )}
           </div>
         )}

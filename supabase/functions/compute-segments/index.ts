@@ -205,7 +205,8 @@ serve(async (req) => {
           const freq = bks.length;
           const rev = bks.reduce((sum, b) => {
             const lines = linesByBooking.get(b.id) ?? [];
-            return sum + lines.reduce((s, l) => s + Number(l.amount_gross || 0), 0);
+            // Multiply by 0.8 to exclude 25% VAT
+            return sum + lines.reduce((s, l) => s + (Number(l.amount_gross || 0) * 0.8), 0);
           }, 0);
           const margin = rev * Number(th.default_margin_pct ?? 25) / 100;
           return { freq, rev, margin };
@@ -219,8 +220,9 @@ serve(async (req) => {
         
         const discountShare = (() => {
           const all = bookings24m.flatMap((b) => linesByBooking.get(b.id) ?? []);
-          const disc = all.filter((l) => !!l.is_discount).reduce((s, l) => s + Number(l.amount_gross || 0), 0);
-          const gross = all.reduce((s, l) => s + Number(l.amount_gross || 0), 0);
+          // Multiply by 0.8 to exclude 25% VAT
+          const disc = all.filter((l) => !!l.is_discount).reduce((s, l) => s + (Number(l.amount_gross || 0) * 0.8), 0);
+          const gross = all.reduce((s, l) => s + (Number(l.amount_gross || 0) * 0.8), 0);
           return gross > 0 ? disc / gross : 0;
         })();
         
@@ -263,7 +265,8 @@ serve(async (req) => {
           
           for (const line of lines) {
             const desc = String(line.description ?? "").toLowerCase();
-            const amount = Number(line.amount_gross || 0);
+            // Multiply by 0.8 to exclude 25% VAT
+            const amount = Number(line.amount_gross || 0) * 0.8;
             
             // Skip discounts (already tracked separately)
             if (line.is_discount) continue;

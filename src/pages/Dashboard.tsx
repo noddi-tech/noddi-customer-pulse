@@ -165,7 +165,7 @@ export default function Dashboard() {
                 totalCustomers={totalCustomers}
                 avgRecencyDays={insight?.avg_recency_days}
                 avgFrequency={insight?.avg_frequency_24m}
-                avgRevenue={insight?.avg_revenue_24m}
+                avgRevenue={insight?.avg_revenue_per_booking}
                 onClick={() => navigate(`/customers?lifecycle=${card.label}`)}
                 tooltipText={card.tooltip}
               />
@@ -205,7 +205,7 @@ export default function Dashboard() {
                   </p>
                   {insight && (
                     <div className="mt-3 space-y-1 border-t pt-2 text-xs text-muted-foreground">
-                      <div>Avg revenue: {insight.avg_revenue_24m.toLocaleString()} NOK</div>
+                      <div>Avg revenue: {Math.round(insight.avg_frequency_24m > 0 ? insight.avg_revenue_per_booking : 0).toLocaleString()} NOK/booking</div>
                       <div>Avg bookings: {insight.avg_frequency_24m.toFixed(1)}/24mo</div>
                     </div>
                   )}

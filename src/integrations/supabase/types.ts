@@ -602,9 +602,9 @@ export type Database = {
         Args: never
         Returns: {
           avg_frequency_24m: number
-          avg_margin_24m: number
+          avg_margin_per_booking: number
           avg_recency_days: number
-          avg_revenue_24m: number
+          avg_revenue_per_booking: number
           customer_count: number
           lifecycle: string
         }[]
