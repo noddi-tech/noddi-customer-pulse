@@ -588,20 +588,18 @@ export type Database = {
       }
     }
     Functions: {
-      count_active_user_groups: {
-        Args: Record<PropertyKey, never>
-        Returns: number
-      }
+      count_active_user_groups: { Args: never; Returns: number }
       get_churn_timeline: {
-        Args: Record<PropertyKey, never>
+        Args: never
         Returns: {
           churn_period: string
           customer_count: number
           period_order: number
         }[]
       }
+      get_inactive_customer_count: { Args: never; Returns: number }
       get_lifecycle_insights: {
-        Args: Record<PropertyKey, never>
+        Args: never
         Returns: {
           avg_frequency_24m: number
           avg_margin_24m: number
@@ -611,14 +609,8 @@ export type Database = {
           lifecycle: string
         }[]
       }
-      get_product_line_stats: {
-        Args: Record<PropertyKey, never>
-        Returns: Json
-      }
-      get_segment_counts: {
-        Args: Record<PropertyKey, never>
-        Returns: Json
-      }
+      get_product_line_stats: { Args: never; Returns: Json }
+      get_segment_counts: { Args: never; Returns: Json }
     }
     Enums: {
       [_ in never]: never
