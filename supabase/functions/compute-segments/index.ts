@@ -19,6 +19,8 @@ const sb = createClient(
   }
 );
 
+console.log('[DEPLOY-CHECK] compute-segments v2.1.0 - WITH ROW LIMITS - deployed successfully');
+
 type Thresholds = {
   new_days: number;
   active_months: number;
