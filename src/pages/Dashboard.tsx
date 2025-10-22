@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +14,7 @@ import { EnhancedLifecycleCard } from "@/components/dashboard/EnhancedLifecycleC
 import { ChurnTimeline } from "@/components/dashboard/ChurnTimeline";
 import { ProductLineStats } from "@/components/dashboard/ProductLineStats";
 import { ActionableInsights } from "@/components/dashboard/ActionableInsights";
+import { TimePeriodSelector } from "@/components/dashboard/TimePeriodSelector";
 import { 
   Tooltip,
   TooltipContent,
@@ -21,9 +23,10 @@ import {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const [timePeriod, setTimePeriod] = useState<12 | 24 | 36 | 48 | 0>(24);
   const { data: counts, refetch, isRefetching, dataUpdatedAt } = useSegmentCounts();
   const { data: inactiveCount } = useInactiveCustomerCount();
-  const { data: insights } = useLifecycleInsights();
+  const { data: insights } = useLifecycleInsights(timePeriod);
   const syncMutation = useSyncNow();
   const computeMutation = useComputeSegments();
 
@@ -153,7 +156,10 @@ export default function Dashboard() {
 
       {/* Lifecycle Distribution */}
       <div>
-        <h2 className="text-2xl font-semibold mb-4">Lifecycle Distribution</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-2xl font-semibold">Lifecycle Distribution</h2>
+          <TimePeriodSelector selected={timePeriod} onChange={setTimePeriod} />
+        </div>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
           {lifecycleCards.map((card) => {
             const insight = getInsightForLifecycle(card.label);
@@ -169,6 +175,7 @@ export default function Dashboard() {
                 avgRevenue={insight?.avg_revenue_per_booking}
                 onClick={() => navigate(`/customers?lifecycle=${card.label}`)}
                 tooltipText={card.tooltip}
+                timePeriod={timePeriod}
               />
             );
           })}
