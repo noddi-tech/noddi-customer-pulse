@@ -156,18 +156,19 @@ serve(async (req) => {
       for (const userGroupId of subbatch) {
         const bk = bookingsByUserGroup.get(userGroupId);
         
-        if (!bk || bk.length === 0) {
+        // PROCESS ALL CUSTOMERS (even without bookings)
+        const bookings = bk || [];
+        
+        if (bookings.length === 0) {
           skippedNoBookings++;
           if (skippedNoBookings <= 10) {
-            console.log(`[SKIP] user_group ${userGroupId}: bookings=${bk?.length || 0}, exists=${bookingsByUserGroup.has(userGroupId)}`);
+            console.log(`[NO BOOKINGS] user_group ${userGroupId}: Will be assigned lifecycle based on creation date`);
           }
-          continue;
+        } else {
+          processedWithBookings++;
         }
         
-        processedWithBookings++;
-        
         // Calculate features for this user_group (aggregated across all members)
-        const bookings = bk;
         
         const lastBookingAt = bookings.reduce((m: Date | null, b) => {
           const t = b.started_at 
@@ -374,7 +375,7 @@ serve(async (req) => {
           return "On Schedule";
         })();
         
-        // Calculate lifecycle
+        // Calculate lifecycle - handle customers without bookings
         const daysSinceLastBooking = recencyDays ?? Infinity;
         const monthsSinceLastBooking = daysSinceLastBooking / 30.4375;
         const daysSinceFirstBooking = firstBookingAt 
@@ -383,18 +384,35 @@ serve(async (req) => {
 
         let lifecycle = "Churned";
 
-        // Lifecycle based on ANY booking activity
-        if (daysSinceFirstBooking <= (th.new_days ?? 90)) {
-          lifecycle = "New";
-        } else if (storageActive) {
-          lifecycle = "Active";  // Storage customers = recurring relationship
-        } else if (monthsSinceLastBooking <= (th.active_months ?? 7)) {
-          lifecycle = "Active";  // ANY recent booking
-        } else if (monthsSinceLastBooking > (th.at_risk_from_months ?? 7) && 
-                   monthsSinceLastBooking <= (th.at_risk_to_months ?? 9)) {
-          lifecycle = "At-risk";
+        // For customers without bookings, check user_group creation date
+        if (bookings.length === 0) {
+          // Query user_group creation date to determine if "New" or "Churned"
+          const { data: userGroupData } = await sb
+            .from("user_groups")
+            .select("created_at")
+            .eq("id", userGroupId)
+            .single();
+          
+          const createdAt = userGroupData?.created_at ? new Date(userGroupData.created_at) : null;
+          const daysSinceCreation = createdAt 
+            ? (now.getTime() - createdAt.getTime()) / 86400000 
+            : Infinity;
+          
+          lifecycle = daysSinceCreation <= (th.new_days ?? 90) ? "New" : "Churned";
         } else {
-          lifecycle = "Churned";
+          // Lifecycle based on ANY booking activity
+          if (daysSinceFirstBooking <= (th.new_days ?? 90)) {
+            lifecycle = "New";
+          } else if (storageActive) {
+            lifecycle = "Active";  // Storage customers = recurring relationship
+          } else if (monthsSinceLastBooking <= (th.active_months ?? 7)) {
+            lifecycle = "Active";  // ANY recent booking
+          } else if (monthsSinceLastBooking > (th.at_risk_from_months ?? 7) && 
+                     monthsSinceLastBooking <= (th.at_risk_to_months ?? 9)) {
+            lifecycle = "At-risk";
+          } else {
+            lifecycle = "Churned";
+          }
         }
         
         feats.push({

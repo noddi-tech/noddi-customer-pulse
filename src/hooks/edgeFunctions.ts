@@ -39,12 +39,13 @@ export function useComputeSegments() {
       let totalProcessed = 0;
       let totalCustomers = 0;
       let batchCount = 0;
+      const MAX_BATCHES = 20; // Prevent infinite loop (20 batches * 1000 = 20,000 max customers)
       
       console.log('[FRONTEND] 🚀 Starting compute-segments batching loop');
       
-      while (true) {
+      while (batchCount < MAX_BATCHES) {
         batchCount++;
-        console.log(`[FRONTEND] 📦 Batch ${batchCount}: Calling edge function with offset=${offset}, batchSize=${batchSize}`);
+        console.log(`[FRONTEND] 📦 Batch ${batchCount}/${MAX_BATCHES}: Calling edge function with offset=${offset}, batchSize=${batchSize}`);
         
         try {
           // Call edge function with query parameters
@@ -90,6 +91,9 @@ export function useComputeSegments() {
           throw error;
         }
       }
+      
+      // If we hit MAX_BATCHES, throw error with diagnostic info
+      throw new Error(`Exceeded maximum batch count (${MAX_BATCHES}). Last offset: ${offset}, total processed: ${totalProcessed}/${totalCustomers}. This indicates a batching loop issue in the edge function.`);
     },
     onSuccess: (data) => {
       toast.success(`Computed segments for ${data.users} customers`);

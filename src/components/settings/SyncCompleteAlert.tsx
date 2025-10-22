@@ -14,7 +14,7 @@ export function SyncCompleteAlert({ activeCustomers, activeBookings, activeOrder
       <AlertTitle className="text-green-900 dark:text-green-100">Data Sync Complete!</AlertTitle>
       <AlertDescription className="text-green-800 dark:text-green-200">
         <p>
-          You now have <span className="font-semibold">{activeCustomers.toLocaleString()}</span> active customers 
+          You now have <span className="font-semibold">{activeCustomers.toLocaleString()}</span> customers 
           with <span className="font-semibold">{activeBookings.toLocaleString()}</span> bookings 
           and <span className="font-semibold">{activeOrderLines.toLocaleString()}</span> order lines ready for analysis.
         </p>

@@ -553,9 +553,9 @@ export default function Settings() {
                 {/* Show sync complete alert when sync is done but segments not computed */}
                 {isSyncComplete && !lastComputeTime && (
                   <SyncCompleteAlert
-                    activeCustomers={dbCounts?.user_groups_active || 0}
-                    activeBookings={dbCounts?.bookings || 0}
-                    activeOrderLines={dbCounts?.order_lines || 0}
+                    activeCustomers={dbCounts?.customers_total || 0}
+                    activeBookings={dbCounts?.bookings_total || 0}
+                    activeOrderLines={dbCounts?.order_lines_total || 0}
                   />
                 )}
 
