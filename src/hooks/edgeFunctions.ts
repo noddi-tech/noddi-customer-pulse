@@ -90,8 +90,40 @@ export function useComputeSegments() {
           onProgress?.(data.batch.progress, totalProcessed, totalCustomers);
           
           if (!data.batch.hasMore) {
-            console.log(`[FRONTEND] ✅ Loop complete! Processed ${batchCount} batches, ${totalProcessed} customers total`);
-            return { users: totalProcessed, total: totalCustomers };
+            console.log(`[FRONTEND] ✅ Segment batches complete! Processed ${batchCount} batches, ${totalProcessed} customers total`);
+            
+            // Step 3: Compute value tiers in separate function
+            console.log('[FRONTEND] 🎯 Starting value tier computation...');
+            onProgress?.(95, totalProcessed, totalCustomers); // Show 95% while computing value tiers
+            
+            const valueTierResponse = await fetch(
+              `https://wylrkmtpjodunmnwncej.supabase.co/functions/v1/compute-value-tiers`,
+              {
+                method: 'GET',
+                headers: {
+                  'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5bHJrbXRwam9kdW5tbnduY2VqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA2MzA1ODAsImV4cCI6MjA3NjIwNjU4MH0.L0tBvJ5tCfKiclLo6q35TIC8gOrxUiQ2tVmk5V2RQpo`,
+                  'Content-Type': 'application/json'
+                }
+              }
+            );
+            
+            if (!valueTierResponse.ok) {
+              const errorText = await valueTierResponse.text();
+              console.error('[FRONTEND] ❌ Value tier computation failed:', errorText);
+              throw new Error(`Value tier computation failed: ${errorText}`);
+            }
+            
+            const valueTierData = await valueTierResponse.json();
+            console.log('[FRONTEND] ✅ Value tier computation complete:', valueTierData);
+            
+            onProgress?.(100, totalProcessed, totalCustomers);
+            
+            return { 
+              users: totalProcessed, 
+              total: totalCustomers,
+              valueTiers: valueTierData.updated,
+              distribution: valueTierData.distribution
+            };
           }
           
           offset = data.batch.nextOffset;

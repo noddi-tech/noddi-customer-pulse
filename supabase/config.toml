@@ -31,3 +31,6 @@ verify_jwt = false
 
 [functions.sync-diagnostics]
 verify_jwt = false
+
+[functions.compute-value-tiers]
+verify_jwt = false
