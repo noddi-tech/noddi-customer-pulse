@@ -1,10 +1,13 @@
 project_id = "wylrkmtpjodunmnwncej"
 
-# Sync and data management functions - v1.0.1
+# Sync and data management functions - v1.0.2
 [functions.sync-noddi-data]
 verify_jwt = false
 
 [functions.compute-segments]
+verify_jwt = false
+
+[functions.clear-segments]
 verify_jwt = false
 
 [functions.test-noddi-connection]

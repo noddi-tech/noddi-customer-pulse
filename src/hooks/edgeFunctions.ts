@@ -41,6 +41,17 @@ export function useComputeSegments() {
       let batchCount = 0;
       const MAX_BATCHES = 20; // Prevent infinite loop (20 batches * 1000 = 20,000 max customers)
       
+      // Step 1: Clear old segments and features before recomputation
+      console.log('[FRONTEND] 🗑️ Clearing old segments and features...');
+      const { data: clearData, error: clearError } = await supabase.functions.invoke('clear-segments');
+      
+      if (clearError) {
+        throw new Error(`Failed to clear data: ${clearError.message}`);
+      }
+      
+      console.log('[FRONTEND] ✓ Old data cleared:', clearData);
+      
+      // Step 2: Start compute-segments batching loop
       console.log('[FRONTEND] 🚀 Starting compute-segments batching loop');
       
       while (batchCount < MAX_BATCHES) {
