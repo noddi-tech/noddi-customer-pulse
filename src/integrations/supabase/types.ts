@@ -601,17 +601,29 @@ export type Database = {
         }[]
       }
       get_inactive_customer_count: { Args: never; Returns: number }
-      get_lifecycle_insights: {
-        Args: never
-        Returns: {
-          avg_frequency_24m: number
-          avg_margin_per_booking: number
-          avg_recency_days: number
-          avg_revenue_per_booking: number
-          customer_count: number
-          lifecycle: string
-        }[]
-      }
+      get_lifecycle_insights:
+        | {
+            Args: { time_period?: number }
+            Returns: {
+              avg_frequency_24m: number
+              avg_margin_per_booking: number
+              avg_recency_days: number
+              avg_revenue_per_booking: number
+              customer_count: number
+              lifecycle: string
+            }[]
+          }
+        | {
+            Args: never
+            Returns: {
+              avg_frequency_24m: number
+              avg_margin_per_booking: number
+              avg_recency_days: number
+              avg_revenue_per_booking: number
+              customer_count: number
+              lifecycle: string
+            }[]
+          }
       get_product_line_stats: { Args: never; Returns: Json }
       get_segment_counts: { Args: never; Returns: Json }
     }
