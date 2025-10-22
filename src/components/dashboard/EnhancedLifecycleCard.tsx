@@ -18,6 +18,7 @@ type EnhancedLifecycleCardProps = {
   avgRevenue?: number;
   onClick: () => void;
   tooltipText: string;
+  timePeriod?: number;
 };
 
 export function EnhancedLifecycleCard({
@@ -30,6 +31,7 @@ export function EnhancedLifecycleCard({
   avgRevenue,
   onClick,
   tooltipText,
+  timePeriod = 24,
 }: EnhancedLifecycleCardProps) {
   const percentage = totalCustomers > 0 ? Math.round((count / totalCustomers) * 100) : 0;
 
@@ -73,7 +75,7 @@ export function EnhancedLifecycleCard({
               <div>Avg last booking: {formatRecency(avgRecencyDays)}</div>
             )}
             {avgFrequency !== undefined && (
-              <div>Avg bookings: {avgFrequency.toFixed(1)}/24mo</div>
+              <div>Avg bookings: {avgFrequency.toFixed(1)}/{timePeriod === 0 ? 'lifetime' : `${timePeriod}mo`}</div>
             )}
             {avgRevenue !== undefined && (
               <div>Avg revenue: {avgRevenue.toLocaleString()} NOK/booking (ex VAT)</div>

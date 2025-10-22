@@ -23,11 +23,13 @@ export type ProductLineStats = {
   multi_service_customers: number;
 };
 
-export function useLifecycleInsights() {
+export function useLifecycleInsights(timePeriod: number = 24) {
   return useQuery({
-    queryKey: ["lifecycle-insights"],
+    queryKey: ["lifecycle-insights", timePeriod],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("get_lifecycle_insights");
+      const { data, error } = await supabase.rpc("get_lifecycle_insights", {
+        time_period: timePeriod
+      });
       if (error) throw error;
       return (data || []) as LifecycleInsight[];
     },

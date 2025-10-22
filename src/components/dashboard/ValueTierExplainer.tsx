@@ -12,20 +12,20 @@ export function ValueTierExplainer() {
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
         <p className="text-muted-foreground mb-3">
-          Value tiers use an RFM model (Recency, Frequency, Monetary) with stickiness boosts for strategic customer segments.
+          Customers are grouped by their booking patterns, spending, and engagement level.
         </p>
         <div className="grid gap-3 md:grid-cols-3">
           <div>
             <span className="font-semibold text-foreground">High Value (Top 20%):</span>
-            <span className="text-muted-foreground"> Score ≥ 0.8. Strong recent activity, frequent bookings, and high revenue. Includes +15% boost for storage, +10% for fleet, +5% for multi-service customers.</span>
+            <span className="text-muted-foreground"> Your best customers who book frequently, visited recently, and spend well. Storage and fleet customers automatically qualify for high-value status.</span>
           </div>
           <div>
             <span className="font-semibold text-foreground">Mid Value (Middle 30%):</span>
-            <span className="text-muted-foreground"> Score 0.5-0.8. Moderate engagement across recency, frequency, and spending with growth potential.</span>
+            <span className="text-muted-foreground"> Regular customers with good potential. Consistent bookings and moderate spending.</span>
           </div>
           <div>
             <span className="font-semibold text-foreground">Low Value (Bottom 50%):</span>
-            <span className="text-muted-foreground"> Score &lt; 0.5. Less frequent booking patterns or lower spending. May be new or occasional users.</span>
+            <span className="text-muted-foreground"> Occasional customers or newer users. Less frequent visits or lower spending so far.</span>
           </div>
         </div>
       </CardContent>
