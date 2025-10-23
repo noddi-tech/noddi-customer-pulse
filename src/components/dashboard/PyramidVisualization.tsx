@@ -97,14 +97,13 @@ export function PyramidVisualization() {
       textColor: "text-yellow-600 dark:text-yellow-400",
       borderColor: "border-yellow-500",
       icon: Award,
-      description: "Top-tier customers: Active + (high composite score OR storage OR high-value tire OR enterprise)",
+      description: "Your best customers: high spenders, storage users, or large fleets",
       width: "w-1/4",
-      criteria: [
-        "✓ Active lifecycle status",
-        "✓ Composite score ≥0.75, OR",
-        "✓ Storage contract active, OR",
-        "✓ High-value tire purchaser (€8k+ order), OR",
-        "✓ Enterprise customer segment"
+      simpleCriteria: [
+        "• Top 25% spenders in their segment",
+        "• Storage contract customers",
+        "• Large tire orders (€8k+)",
+        "• Enterprise fleets (50+ cars)"
       ],
     },
     {
@@ -114,12 +113,12 @@ export function PyramidVisualization() {
       textColor: "text-blue-600 dark:text-blue-400",
       borderColor: "border-blue-500",
       icon: Sparkles,
-      description: "Active with mid+ score OR At-risk with high score",
+      description: "Regular visitors who consistently return",
       width: "w-2/5",
-      criteria: [
-        "✓ Active AND composite score ≥0.5, OR",
-        "✓ At-risk AND composite score ≥0.7",
-        "Consistent performers who return regularly"
+      simpleCriteria: [
+        "• Books regularly (multiple times/year)",
+        "• Moderate to high spending",
+        "• Reliable repeat customers"
       ],
     },
     {
@@ -129,12 +128,12 @@ export function PyramidVisualization() {
       textColor: "text-green-600 dark:text-green-400",
       borderColor: "border-green-500",
       icon: TrendingUp,
-      description: "Active/At-risk with 2+ lifetime bookings OR Winback with mid+ score",
+      description: "Building a relationship with consistent engagement",
       width: "w-3/5",
-      criteria: [
-        "✓ (Active OR At-risk) AND 2+ lifetime bookings, OR",
-        "✓ Winback status AND composite score ≥0.5",
-        "Building relationship with consistent engagement"
+      simpleCriteria: [
+        "• 2+ lifetime bookings",
+        "• Recently returned after gap",
+        "• Growing engagement"
       ],
     },
     {
@@ -144,12 +143,12 @@ export function PyramidVisualization() {
       textColor: "text-purple-600 dark:text-purple-400",
       borderColor: "border-purple-500",
       icon: Target,
-      description: "New customers, winbacks, or single booking <180 days old",
+      description: "New customers or recent visitors",
       width: "w-4/5",
-      criteria: [
-        "✓ New or Winback lifecycle, OR",
-        "✓ Single booking AND <180 days since last booking",
-        "Early-stage relationship potential"
+      simpleCriteria: [
+        "• First booking within 6 months",
+        "• Single booking so far",
+        "• Early relationship stage"
       ],
     },
   ];
@@ -206,8 +205,9 @@ export function PyramidVisualization() {
                         </TooltipTrigger>
                         <TooltipContent side="right" className="max-w-xs">
                           <div className="space-y-1">
-                            <p className="font-semibold">{tier.name} Tier Criteria:</p>
-                            {tier.criteria.map((criterion, idx) => (
+                            <p className="font-semibold">{tier.name} Customers:</p>
+                            <p className="text-xs text-muted-foreground mb-2">{tier.description}</p>
+                            {tier.simpleCriteria.map((criterion, idx) => (
                               <p key={idx} className="text-xs">{criterion}</p>
                             ))}
                           </div>

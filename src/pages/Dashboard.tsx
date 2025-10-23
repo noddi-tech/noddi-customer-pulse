@@ -6,10 +6,9 @@ import { Button } from "@/components/ui/button";
 import { useSegmentCounts, useInactiveCustomerCount } from "@/hooks/segmentation";
 import { useSyncNow, useComputeSegments } from "@/hooks/edgeFunctions";
 import { useLifecycleInsights } from "@/hooks/dashboardInsights";
-import { Users, RefreshCw, UserX } from "lucide-react";
+import { usePyramidTierCounts, useDormantCounts } from "@/hooks/pyramidSegmentation";
+import { Users, RefreshCw, UserX, Info } from "lucide-react";
 import { CacheIndicator } from "@/components/CacheIndicator";
-import { LifecycleExplainer } from "@/components/dashboard/LifecycleExplainer";
-import { ValueTierExplainer } from "@/components/dashboard/ValueTierExplainer";
 import { EnhancedLifecycleCard } from "@/components/dashboard/EnhancedLifecycleCard";
 import { ChurnTimeline } from "@/components/dashboard/ChurnTimeline";
 import { ProductLineStats } from "@/components/dashboard/ProductLineStats";
@@ -23,6 +22,7 @@ import { PyramidActionableInsights } from "@/components/dashboard/PyramidActiona
 import { 
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
@@ -32,6 +32,8 @@ export default function Dashboard() {
   const { data: counts, refetch, isRefetching, dataUpdatedAt } = useSegmentCounts();
   const { data: inactiveCount } = useInactiveCustomerCount();
   const { data: insights } = useLifecycleInsights(timePeriod);
+  const { data: tierCounts } = usePyramidTierCounts();
+  const { data: dormantCounts } = useDormantCounts();
   const syncMutation = useSyncNow();
   const computeMutation = useComputeSegments();
 
@@ -45,6 +47,7 @@ export default function Dashboard() {
   const getInsightForLifecycle = (lifecycle: string) => {
     return insights?.find((i) => i.lifecycle === lifecycle);
   };
+  
   const lifecycleCards = [
     { 
       label: "New", 
@@ -96,7 +99,7 @@ export default function Dashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground">Customer segmentation overview</p>
+          <p className="text-muted-foreground">Customer insights at a glance</p>
         </div>
         <div className="flex items-center gap-4">
           <CacheIndicator
@@ -111,59 +114,84 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Lifecycle Explainer */}
-      <LifecycleExplainer />
+      {/* KPI Summary Row */}
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold">{totalCustomers.toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {activeCustomers.toLocaleString()} with bookings
+            </p>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Champions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-yellow-600 dark:text-yellow-400">{tierCounts?.Champion || 0}</div>
+            <p className="text-xs text-muted-foreground mt-1">Your best customers</p>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">At-Risk</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-orange-600 dark:text-orange-400">{counts?.['At-risk'] || 0}</div>
+            <p className="text-xs text-muted-foreground mt-1">Need attention soon</p>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Salvageable</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-blue-600 dark:text-blue-400">{dormantCounts?.salvageable || 0}</div>
+            <p className="text-xs text-muted-foreground mt-1">Win-back opportunity</p>
+          </CardContent>
+        </Card>
+      </div>
 
-      {/* Total Customers Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            Total Customers
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="text-4xl font-bold">{totalCustomers.toLocaleString()}</div>
-          
-          <div className="grid grid-cols-2 gap-4 pt-4 border-t">
-            <div>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-                <Users className="h-4 w-4" />
-                With Bookings
-              </div>
-              <div className="text-2xl font-semibold">{activeCustomers.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {totalCustomers > 0 ? Math.round((activeCustomers / totalCustomers) * 100) : 0}% of total
-              </p>
-            </div>
-            
-            <div>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-                <UserX className="h-4 w-4" />
-                <span>Inactive</span>
-                <Tooltip>
-                  <TooltipTrigger>
-                    <span className="text-xs cursor-help">ℹ️</span>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Registered but never booked</p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <div className="text-2xl font-semibold">{(inactiveCount || 0).toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {totalCustomers > 0 ? Math.round(((inactiveCount || 0) / totalCustomers) * 100) : 0}% of total
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Actionable Insights - MOVED TO TOP */}
+      <ActionableInsights />
+      <PyramidActionableInsights />
 
       {/* Lifecycle Distribution */}
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-2xl font-semibold">Lifecycle Distribution</h2>
-          <TimePeriodSelector selected={timePeriod} onChange={setTimePeriod} />
+          <div>
+            <h2 className="text-2xl font-semibold">Customer Lifecycle</h2>
+            <p className="text-sm text-muted-foreground">Where customers are in their journey</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <TimePeriodSelector selected={timePeriod} onChange={setTimePeriod} />
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm">
+                    <Info className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left" className="max-w-sm">
+                  <p className="font-semibold mb-2">Lifecycle Stages:</p>
+                  <ul className="space-y-1 text-xs">
+                    <li><strong>New:</strong> First booking &lt;90 days ago</li>
+                    <li><strong>Active:</strong> Booked within last 7 months</li>
+                    <li><strong>At-risk:</strong> 7-9 months since last booking</li>
+                    <li><strong>Churned:</strong> 9+ months inactive</li>
+                    <li><strong>Winback:</strong> Returned after being churned</li>
+                  </ul>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
         </div>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
           {lifecycleCards.map((card) => {
@@ -190,15 +218,26 @@ export default function Dashboard() {
       {/* Churn Timeline */}
       <ChurnTimeline />
 
-      {/* Actionable Insights */}
-      <ActionableInsights />
-
-      {/* Value Tier Explainer */}
-      <ValueTierExplainer />
-
       {/* Value Tier Distribution */}
       <div>
-        <h2 className="text-2xl font-semibold mb-4">Value Tier Distribution</h2>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-2xl font-semibold">Value Tiers</h2>
+            <p className="text-sm text-muted-foreground">Customer spending levels</p>
+          </div>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="sm">
+                  <Info className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="max-w-sm">
+                <p className="text-xs">Based on 24-month revenue and lifetime value</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
         <div className="grid gap-4 md:grid-cols-3">
           {valueCards.map((card) => {
             const insight = getInsightForLifecycle(card.label.split(' ')[0]);
@@ -236,15 +275,40 @@ export default function Dashboard() {
       <ProductLineStats />
 
       {/* Pyramid Segmentation */}
-      <PyramidExplainer />
-      
-      <div className="grid gap-6 lg:grid-cols-3">
-        <PyramidVisualization />
-        <CustomerSegmentBreakdown />
-        <PyramidHealthCard />
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-2xl font-semibold">Customer Value Pyramid</h2>
+            <p className="text-sm text-muted-foreground">4-tier engagement model for targeted marketing</p>
+          </div>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="sm">
+                  <Info className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="max-w-md">
+                <p className="font-semibold mb-2">How the pyramid works:</p>
+                <ul className="space-y-1 text-xs">
+                  <li>🏆 <strong>Champions:</strong> Best customers - high value, frequent visits</li>
+                  <li>💙 <strong>Loyalists:</strong> Regular repeat customers</li>
+                  <li>✨ <strong>Engaged:</strong> Building relationship</li>
+                  <li>🌱 <strong>Prospects:</strong> New or one-time visitors</li>
+                </ul>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+        
+        <PyramidExplainer />
+        
+        <div className="grid gap-6 lg:grid-cols-3 mt-6">
+          <PyramidVisualization />
+          <CustomerSegmentBreakdown />
+          <PyramidHealthCard />
+        </div>
       </div>
-
-      <PyramidActionableInsights />
     </div>
   );
 }
