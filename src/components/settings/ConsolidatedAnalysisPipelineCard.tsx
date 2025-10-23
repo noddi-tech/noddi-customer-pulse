@@ -172,7 +172,13 @@ export function ConsolidatedAnalysisPipelineCard({
                           >
                             <div className="text-xs text-muted-foreground">{analysis.label}</div>
                             <div className="text-sm font-bold">
-                              {analysis.count.toLocaleString()} / {customersInDb.toLocaleString()}
+                              {analysis.count.toLocaleString()} / {
+                                (Math.max(
+                                  segmentsComputed || 0,
+                                  valueTiersComputed || 0,
+                                  customersInDb
+                                )).toLocaleString()
+                              }
                             </div>
                           </div>
                         ))}

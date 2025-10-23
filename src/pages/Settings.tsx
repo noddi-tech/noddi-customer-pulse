@@ -66,6 +66,19 @@ export default function Settings() {
     refetchInterval: 30000, // Refresh every 30 seconds
   });
 
+  // Query for pyramid tier count
+  const { data: pyramidCountData } = useQuery({
+    queryKey: ["pyramid-tier-total"],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from("segments")
+        .select("*", { count: 'exact', head: true })
+        .not("pyramid_tier", "is", null);
+      return count || 0;
+    },
+    refetchInterval: 30000,
+  });
+
   // Auto-refresh when sync is running
   const isAnySyncRunning = syncStatus?.some((s) => s.status === "running") ?? false;
   
@@ -614,9 +627,15 @@ export default function Settings() {
           <ConsolidatedAnalysisPipelineCard
             syncComplete={isSyncComplete}
             customersInDb={dbCounts?.customers_total || 0}
-            segmentsComputed={(segmentCounts as any)?.lifecycle?.Active + (segmentCounts as any)?.lifecycle?.['At-risk'] + (segmentCounts as any)?.lifecycle?.Churned + (segmentCounts as any)?.lifecycle?.New + (segmentCounts as any)?.lifecycle?.Winback || 0}
-            valueTiersComputed={(segmentCounts as any)?.value_tier?.High + (segmentCounts as any)?.value_tier?.Mid + (segmentCounts as any)?.value_tier?.Low || 0}
-            pyramidTiersComputed={dbCounts?.customers_total || 0}
+            segmentsComputed={
+              Object.values((segmentCounts as any)?.lifecycle || {})
+                .reduce((sum: number, count: any) => sum + (Number(count) || 0), 0) as number
+            }
+            valueTiersComputed={
+              Object.values((segmentCounts as any)?.value_tier || {})
+                .reduce((sum: number, count: any) => sum + (Number(count) || 0), 0) as number
+            }
+            pyramidTiersComputed={pyramidCountData || 0}
             isComputing={isComputingSegments}
             onRunAnalysis={handleComputeSegments}
             onViewDashboard={() => window.location.href = "/"}
