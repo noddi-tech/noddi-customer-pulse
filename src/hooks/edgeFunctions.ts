@@ -38,15 +38,114 @@ export function useComputeSegments() {
     } = {}) => {
       // Use the unified orchestration function by default for simplicity
       if (useOrchestration) {
-        console.log('[FRONTEND] 🚀 Using orchestration function for complete analysis...');
-        const { data, error } = await supabase.functions.invoke("orchestrate-analysis");
+        console.log('[FRONTEND] 🚀 Starting complete analysis pipeline...');
+        console.log('[FRONTEND] 📊 This will process all customers in batches (5-7 minutes)');
         
-        if (error) throw error;
-        if (!data.success) {
-          throw new Error(data.error || "Analysis pipeline failed");
+        // Trigger the background analysis
+        try {
+          const { data, error } = await supabase.functions.invoke("orchestrate-analysis");
+          
+          if (error) {
+            console.error('[FRONTEND] ❌ Failed to start analysis:', error);
+            throw error;
+          }
+          
+          console.log('[FRONTEND] ✅ Analysis started:', data);
+        } catch (error) {
+          console.error('[FRONTEND] ❌ Error triggering analysis:', error);
+          throw error;
         }
         
-        return data;
+        // Start polling for progress
+        console.log('[FRONTEND] 🔄 Polling for progress every 2 seconds...');
+        const startTime = Date.now();
+        let previousProgress = 0;
+        
+        const pollForProgress = async (): Promise<any> => {
+          return new Promise((resolve, reject) => {
+            const pollInterval = setInterval(async () => {
+              try {
+                // Get total customer count
+                const { count: totalCustomers } = await supabase
+                  .from('user_groups')
+                  .select('*', { count: 'exact', head: true });
+                
+                // Get counts for each analysis type
+                const { count: lifecycleCount } = await supabase
+                  .from('segments')
+                  .select('*', { count: 'exact', head: true })
+                  .not('lifecycle', 'is', null);
+                
+                const { count: valueTierCount } = await supabase
+                  .from('segments')
+                  .select('*', { count: 'exact', head: true })
+                  .not('value_tier', 'is', null);
+                
+                const { count: pyramidCount } = await supabase
+                  .from('segments')
+                  .select('*', { count: 'exact', head: true })
+                  .not('pyramid_tier', 'is', null);
+                
+                const total = totalCustomers || 11267;
+                
+                // Calculate average progress across all three types
+                const avgProgress = ((
+                  (lifecycleCount || 0) + 
+                  (valueTierCount || 0) + 
+                  (pyramidCount || 0)
+                ) / (3 * total)) * 100;
+                
+                // Only log if progress changed significantly (to avoid spam)
+                if (Math.abs(avgProgress - previousProgress) >= 5 || avgProgress >= 99) {
+                  console.log(
+                    `[FRONTEND] 📈 Progress: ${Math.round(avgProgress)}% | ` +
+                    `Lifecycle: ${lifecycleCount}/${total} | ` +
+                    `Value Tiers: ${valueTierCount}/${total} | ` +
+                    `Pyramid: ${pyramidCount}/${total}`
+                  );
+                  previousProgress = avgProgress;
+                }
+                
+                // Update UI progress
+                onProgress?.(avgProgress, lifecycleCount || 0, total);
+                
+                // Check if complete (all three at 100%)
+                if (
+                  lifecycleCount === total &&
+                  valueTierCount === total &&
+                  pyramidCount === total
+                ) {
+                  clearInterval(pollInterval);
+                  const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+                  console.log(`[FRONTEND] ✅ Analysis complete! (${duration}s)`);
+                  console.log(`[FRONTEND] 📊 Final counts: Lifecycle=${lifecycleCount}, Value=${valueTierCount}, Pyramid=${pyramidCount}`);
+                  
+                  // Final progress update
+                  onProgress?.(100, total, total);
+                  
+                  resolve({
+                    success: true,
+                    totalCustomers: total,
+                    duration: parseFloat(duration)
+                  });
+                }
+                
+                // Timeout after 10 minutes
+                if (Date.now() - startTime > 600000) {
+                  clearInterval(pollInterval);
+                  console.error('[FRONTEND] ⏱️ Analysis timed out after 10 minutes');
+                  reject(new Error('Analysis timed out'));
+                }
+              } catch (error) {
+                clearInterval(pollInterval);
+                console.error('[FRONTEND] ❌ Polling error:', error);
+                reject(error);
+              }
+            }, 2000); // Poll every 2 seconds
+          });
+        };
+        
+        return await pollForProgress();
       }
       
       // Legacy batch processing (kept for backwards compatibility / debugging)
@@ -183,10 +282,15 @@ export function useComputeSegments() {
     onSuccess: (data) => {
       // Check if using orchestration or legacy batch processing
       if (data?.steps) {
-        // Orchestration response
+        // Orchestration response (old format, won't happen with polling)
         const successSteps = data.steps.filter((s: any) => s.success).length;
         toast.success(
           `Analysis complete! Successfully ran ${successSteps}/3 steps in ${data.totalDuration}s`
+        );
+      } else if (data?.totalCustomers) {
+        // New polling response format
+        toast.success(
+          `Analysis complete! Processed ${data.totalCustomers.toLocaleString()} customers in ${data.duration}s`
         );
       } else {
         // Legacy response

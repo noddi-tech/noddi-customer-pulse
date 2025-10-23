@@ -205,8 +205,11 @@ export function ConsolidatedAnalysisPipelineCard({
               <div className="space-y-2">
                 <p className="font-medium">Analysis in progress...</p>
                 <Progress value={computingProgress} className="h-2" />
+                <p className="text-sm text-muted-foreground">
+                  {Math.round(computingProgress)}% complete • Processing {segmentsComputed.toLocaleString()} of {customersInDb.toLocaleString()} customers
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  {Math.round(computingProgress)}% complete • Computing lifecycle stages, value tiers, and pyramid positioning
+                  Computing lifecycle stages, value tiers, and pyramid positioning • Check console for detailed progress
                 </p>
               </div>
             </AlertDescription>
