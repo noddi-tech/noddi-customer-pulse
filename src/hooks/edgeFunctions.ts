@@ -100,9 +100,9 @@ export function useComputeSegments() {
             offset = batchData.batch.nextOffset;
             hasMore = batchData.batch.hasMore;
             
-            // SAFETY: Stop if we've processed all customers (handles edge case of skipped records)
-            if (totalProcessed >= totalCustomers) {
-              console.log('[FRONTEND] ⚠️ Processed count >= total, stopping early');
+            // SAFETY: Stop if offset has reached or exceeded total (handles all customers, not just those with bookings)
+            if (offset >= totalCustomers) {
+              console.log('[FRONTEND] ⚠️ Offset >= total customers, stopping');
               hasMore = false;
             }
             
