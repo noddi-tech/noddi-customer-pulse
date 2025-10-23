@@ -32,6 +32,14 @@ type Thresholds = {
   value_mid_percentile: number;
 };
 
+// Helper function to determine customer segment (B2C, SMB, Large, Enterprise)
+function determineCustomerSegment(userGroupType: string, orgId: number | null, fleetSize: number): string {
+  if (userGroupType === 'personal' || !orgId) return 'B2C';
+  if (fleetSize >= 50) return 'Enterprise';
+  if (fleetSize >= 20) return 'Large';
+  return 'SMB';
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -94,10 +102,18 @@ serve(async (req) => {
     const batchUserGroupIds = uniqueUserGroupIds.slice(batchOffset, batchOffset + batchSize);
     console.log(`[BATCH] Processing ${batchUserGroupIds.length} customers (${batchOffset} to ${batchOffset + batchUserGroupIds.length})`);
     
-    // Optimize: Fetch ALL bookings for the batch at once (for complete CLV history)
+    // Fetch user_groups data for customer segmentation
+    const { data: userGroupsData } = await sb
+      .from("user_groups")
+      .select("id, type, org_id")
+      .in("id", batchUserGroupIds);
+    
+    const userGroupMap = new Map(userGroupsData?.map(ug => [ug.id, { type: ug.type || 'personal', org_id: ug.org_id }]) || []);
+    
+    // Optimize: Fetch ALL bookings for the batch at once (for complete CLV history) - with booking_items for fleet size
     const { data: allBookings } = await sb
       .from("bookings")
-      .select("id,user_id,user_group_id,started_at,completed_at,date,status_label,is_fully_paid,is_partially_unable_to_complete,is_fully_unable_to_complete")
+      .select("id,user_id,user_group_id,started_at,completed_at,date,status_label,is_fully_paid,is_partially_unable_to_complete,is_fully_unable_to_complete,booking_items")
       .in("user_group_id", batchUserGroupIds)
       .limit(110000);
     
@@ -153,6 +169,21 @@ serve(async (req) => {
         processedWithBookings++;
         const bookings = bk;
         
+        // Calculate fleet size for B2B customers (count unique car IDs from booking_items)
+        const uniqueCarIds = new Set<number>();
+        if (bookings && bookings.length > 0) {
+          for (const booking of bookings) {
+            if (booking.booking_items && Array.isArray(booking.booking_items)) {
+              for (const item of booking.booking_items) {
+                if (item?.car?.id) {
+                  uniqueCarIds.add(item.car.id);
+                }
+              }
+            }
+          }
+        }
+        const fleetSize = uniqueCarIds.size;
+        
         // Calculate features for this user_group (aggregated across all members)
         
         const lastBookingAt = bookings.reduce((m: Date | null, b) => {
@@ -181,16 +212,47 @@ serve(async (req) => {
         const bookings36m = bookings.filter(b => { const d = getBookingDate(b); return d && d >= cutoff36m; });
         const bookings48m = bookings.filter(b => { const d = getBookingDate(b); return d && d >= cutoff48m; });
         
-        // Calculate metrics for each interval
+        // Calculate metrics for each interval - now separating tire vs service revenue
         const calcMetrics = (bks: any[]) => {
           const freq = bks.length;
-          const rev = bks.reduce((sum, b) => {
+          let tireRev = 0;
+          let serviceRev = 0;
+          let largestTireOrderInPeriod = 0;
+          let tireOrderCount = 0;
+          const tireOrdersByBooking = new Map<number, number>();
+          
+          for (const b of bks) {
             const lines = linesByBooking.get(b.id) ?? [];
-            // Multiply by 0.8 to exclude 25% VAT
-            return sum + lines.reduce((s, l) => s + (Number(l.amount_gross || 0) * 0.8), 0);
-          }, 0);
-          const margin = rev * Number(th.default_margin_pct ?? 25) / 100;
-          return { freq, rev, margin };
+            let bookingTireTotal = 0;
+            
+            for (const l of lines) {
+              // Multiply by 0.8 to exclude 25% VAT
+              const amount = Number(l.amount_gross || 0) * 0.8;
+              
+              // Check if this is a tire purchase
+              const tireCategories = ['SHOP_TIRE', 'SHOP_TIRE_GENERIC', 'CAR_TIRE'];
+              if (tireCategories.includes(l.category)) {
+                tireRev += amount;
+                bookingTireTotal += amount;
+              } else if (!l.is_discount && !l.is_delivery_fee) {
+                serviceRev += amount;
+              }
+            }
+            
+            // Track per-booking tire order totals
+            if (bookingTireTotal > 0) {
+              tireOrdersByBooking.set(b.id, bookingTireTotal);
+              if (bookingTireTotal > largestTireOrderInPeriod) {
+                largestTireOrderInPeriod = bookingTireTotal;
+              }
+            }
+          }
+          
+          tireOrderCount = tireOrdersByBooking.size;
+          const totalRev = tireRev + serviceRev;
+          const margin = totalRev * Number(th.default_margin_pct ?? 25) / 100;
+          
+          return { freq, rev: totalRev, margin, tireRev, serviceRev, largestTireOrder: largestTireOrderInPeriod, tireOrderCount };
         };
         
         const metrics12m = calcMetrics(bookings12m);
@@ -198,6 +260,17 @@ serve(async (req) => {
         const metrics36m = calcMetrics(bookings36m);
         const metrics48m = calcMetrics(bookings48m);
         const metricsLifetime = calcMetrics(bookings);
+        
+        // Determine customer segment (B2C, SMB, Large, Enterprise)
+        const userGroup = userGroupMap.get(userGroupId);
+        const customerSegment = determineCustomerSegment(
+          userGroup?.type || 'personal', 
+          userGroup?.org_id || null, 
+          fleetSize
+        );
+        
+        // Flag high-value tire purchasers (€8k+ single order)
+        const highValueTirePurchaser = metricsLifetime.largestTireOrder >= 8000;
         
         const discountShare = (() => {
           const all = bookings24m.flatMap((b) => linesByBooking.get(b.id) ?? []);
@@ -420,6 +493,15 @@ serve(async (req) => {
           revenue_lifetime: metricsLifetime.rev,
           margin_lifetime: metricsLifetime.margin,
           
+          // NEW FIELDS - Tire vs Service revenue split
+          tire_revenue_24m: metrics24m.tireRev,
+          service_revenue_24m: metrics24m.serviceRev,
+          tire_revenue_lifetime: metricsLifetime.tireRev,
+          service_revenue_lifetime: metricsLifetime.serviceRev,
+          largest_tire_order: metricsLifetime.largestTireOrder,
+          tire_order_count_24m: metrics24m.tireOrderCount,
+          fleet_size: fleetSize,
+          
           discount_share_24m: discountShare,
           fully_paid_rate: bookings.length
             ? bookings.filter((b) => !!b.is_fully_paid).length / bookings.length
@@ -445,9 +527,19 @@ serve(async (req) => {
           user_id: null, // User-group level data, not individual user
           user_group_id: userGroupId,
           lifecycle,
-          value_tier: null, // Will be calculated in phase 2
+          value_tier: null, // Will be calculated by compute_value_tiers
           tags: allTags,
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
+          
+          // NEW FIELDS - Customer segmentation (Phase 2)
+          customer_segment: customerSegment,
+          high_value_tire_purchaser: highValueTirePurchaser,
+          fleet_size: fleetSize,
+          pyramid_tier: null, // Will be calculated by compute_pyramid_tiers_v3
+          pyramid_tier_name: null,
+          composite_score: null,
+          dormant_segment: null,
+          next_tier_requirements: null
         });
       }
 
