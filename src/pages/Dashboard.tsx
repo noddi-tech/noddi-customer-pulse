@@ -15,6 +15,9 @@ import { ChurnTimeline } from "@/components/dashboard/ChurnTimeline";
 import { ProductLineStats } from "@/components/dashboard/ProductLineStats";
 import { ActionableInsights } from "@/components/dashboard/ActionableInsights";
 import { TimePeriodSelector } from "@/components/dashboard/TimePeriodSelector";
+import { PyramidVisualization } from "@/components/dashboard/PyramidVisualization";
+import { CustomerSegmentBreakdown } from "@/components/dashboard/CustomerSegmentBreakdown";
+import { PyramidExplainer } from "@/components/dashboard/PyramidExplainer";
 import { 
   Tooltip,
   TooltipContent,
@@ -229,6 +232,14 @@ export default function Dashboard() {
 
       {/* Product Line Intelligence */}
       <ProductLineStats />
+
+      {/* Pyramid Segmentation */}
+      <PyramidExplainer />
+      
+      <div className="grid gap-6 lg:grid-cols-2">
+        <PyramidVisualization />
+        <CustomerSegmentBreakdown />
+      </div>
     </div>
   );
 }

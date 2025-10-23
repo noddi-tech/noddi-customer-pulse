@@ -116,13 +116,39 @@ export function useComputeSegments() {
             const valueTierData = await valueTierResponse.json();
             console.log('[FRONTEND] ✅ Value tier computation complete:', valueTierData);
             
+            // Step 4: Compute pyramid tiers (NEW - Phase 2)
+            console.log('[FRONTEND] 🏔️ Starting pyramid tier computation...');
+            onProgress?.(97, totalProcessed, totalCustomers); // Show 97% while computing pyramid tiers
+            
+            const pyramidTierResponse = await fetch(
+              `https://wylrkmtpjodunmnwncej.supabase.co/functions/v1/compute-pyramid-tiers`,
+              {
+                method: 'GET',
+                headers: {
+                  'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5bHJrbXRwam9kdW5tbnduY2VqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA2MzA1ODAsImV4cCI6MjA3NjIwNjU4MH0.L0tBvJ5tCfKiclLo6q35TIC8gOrxUiQ2tVmk5V2RQpo`,
+                  'Content-Type': 'application/json'
+                }
+              }
+            );
+            
+            if (!pyramidTierResponse.ok) {
+              const errorText = await pyramidTierResponse.text();
+              console.error('[FRONTEND] ❌ Pyramid tier computation failed:', errorText);
+              throw new Error(`Pyramid tier computation failed: ${errorText}`);
+            }
+            
+            const pyramidTierData = await pyramidTierResponse.json();
+            console.log('[FRONTEND] ✅ Pyramid tier computation complete:', pyramidTierData);
+            
             onProgress?.(100, totalProcessed, totalCustomers);
             
             return { 
               users: totalProcessed, 
               total: totalCustomers,
               valueTiers: valueTierData.updated,
-              distribution: valueTierData.distribution
+              distribution: valueTierData.distribution,
+              pyramidTiers: pyramidTierData.total_tiered,
+              pyramidDormant: pyramidTierData.total_dormant
             };
           }
           
@@ -143,6 +169,10 @@ export function useComputeSegments() {
       queryClient.invalidateQueries({ queryKey: ["customers"] });
       queryClient.invalidateQueries({ queryKey: ["segment-counts"] });
       queryClient.invalidateQueries({ queryKey: ["customer"] });
+      queryClient.invalidateQueries({ queryKey: ["pyramid-tier-distribution"] });
+      queryClient.invalidateQueries({ queryKey: ["pyramid-tier-counts"] });
+      queryClient.invalidateQueries({ queryKey: ["dormant-counts"] });
+      queryClient.invalidateQueries({ queryKey: ["customer-segment-counts"] });
     },
     onError: (error) => {
       toast.error(`Segment computation failed: ${error.message}`);
