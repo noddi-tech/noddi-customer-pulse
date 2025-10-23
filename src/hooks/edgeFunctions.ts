@@ -55,7 +55,7 @@ export function useComputeSegments() {
           
           let hasMore = true;
           const MAX_BATCHES = 250; // Safety limit
-          const BATCH_SIZE = 58; // Ensures <2s execution per batch
+          const BATCH_SIZE = 150; // Increased for better performance (2x faster)
           const MAX_RETRIES = 3;
           
           while (hasMore && batchNumber < MAX_BATCHES) {
@@ -109,26 +109,35 @@ export function useComputeSegments() {
             // Update offset for next iteration
             offset = batchData.batch.nextOffset;
             
-            // Calculate progress (0-70% for segment batches)
-            const segmentProgress = (totalProcessed / totalCustomers) * 70;
+            // Calculate progress based on total user_groups checked (0-70% for segment batches)
+            const segmentProgress = (offset / totalCustomers) * 70;
+            const skippedCount = offset - totalProcessed;
             
             console.log(
               `[FRONTEND] 📊 Batch ${batchNumber}: ` +
-              `${totalProcessed}/${totalCustomers} customers (${Math.round(segmentProgress)}%)`
+              `${totalProcessed.toLocaleString()} with bookings, ` +
+              `${skippedCount.toLocaleString()} skipped, ` +
+              `${offset.toLocaleString()}/${totalCustomers.toLocaleString()} checked (${Math.round(segmentProgress)}%)`
             );
             
             // Update UI
             onProgress?.(segmentProgress, totalProcessed, totalCustomers);
             
-            // Small delay to avoid rate limiting
-            await new Promise(resolve => setTimeout(resolve, 100));
+            // Minimal delay to prevent overwhelming the backend
+            await new Promise(resolve => setTimeout(resolve, 10));
           }
           
           if (batchNumber >= MAX_BATCHES) {
             throw new Error('Safety limit reached - possible infinite loop');
           }
           
-          console.log(`[FRONTEND] ✅ Step 1 complete: ${totalProcessed} customers in ${batchNumber} batches`);
+          const skippedTotal = offset - totalProcessed;
+          console.log(
+            `[FRONTEND] ✅ Step 1 complete: ` +
+            `${totalProcessed.toLocaleString()} with bookings, ` +
+            `${skippedTotal.toLocaleString()} skipped, ` +
+            `${offset.toLocaleString()} total checked in ${batchNumber} batches`
+          );
           
           // ============================================
           // STEP 2 & 3: Compute value tiers and pyramid tiers (70-100% progress)
@@ -153,11 +162,16 @@ export function useComputeSegments() {
           // ============================================
           const duration = ((Date.now() - startTime) / 1000).toFixed(1);
           console.log(`[FRONTEND] 🎉 Analysis complete in ${duration}s`);
-          console.log(`[FRONTEND] 📊 Final: ${totalProcessed} customers processed`);
+          console.log(
+            `[FRONTEND] 📊 Final: ${totalProcessed.toLocaleString()} with bookings, ` +
+            `${skippedTotal.toLocaleString()} skipped, ${offset.toLocaleString()} total`
+          );
           
           return {
             success: true,
             totalCustomers: totalProcessed,
+            totalChecked: offset,
+            skipped: skippedTotal,
             batches: batchNumber,
             duration: parseFloat(duration)
           };
@@ -303,9 +317,15 @@ export function useComputeSegments() {
     onSuccess: (data) => {
       // Check response format and show appropriate success message
       if (data?.totalCustomers && data?.duration !== undefined) {
-        // New frontend-controlled batch processing format
+        // New frontend-controlled batch processing format with clear breakdown
+        const skipped = data?.skipped || 0;
+        const totalChecked = data?.totalChecked || data.totalCustomers;
         toast.success(
-          `Analysis complete! Processed ${data.totalCustomers.toLocaleString()} customers in ${data.duration}s`
+          `Analysis complete! ✅\n` +
+          `${data.totalCustomers.toLocaleString()} customers with bookings processed\n` +
+          `${skipped.toLocaleString()} user groups without bookings skipped\n` +
+          `Total: ${totalChecked.toLocaleString()} checked in ${Math.round(data.duration)}s`,
+          { duration: 8000 }
         );
       } else {
         // Legacy response
