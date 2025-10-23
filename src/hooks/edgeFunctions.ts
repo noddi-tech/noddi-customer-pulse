@@ -69,9 +69,10 @@ export function useComputeSegments() {
             
             while (retries < MAX_RETRIES && !batchSuccess) {
               try {
-                const { data, error } = await supabase.functions.invoke('compute-segments', {
-                  body: { offset, batch_size: BATCH_SIZE }
-                });
+                const { data, error } = await supabase.functions.invoke(
+                  `compute-segments?offset=${offset}&batch_size=${BATCH_SIZE}`,
+                  { body: {} }
+                );
                 
                 if (error) throw error;
                 
