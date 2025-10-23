@@ -669,6 +669,7 @@ export type Database = {
       }
     }
     Functions: {
+      compute_pyramid_tiers_v3: { Args: never; Returns: Json }
       compute_value_tiers: {
         Args: { high_threshold?: number; mid_threshold?: number }
         Returns: Json

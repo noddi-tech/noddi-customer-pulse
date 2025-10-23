@@ -7,6 +7,9 @@ verify_jwt = false
 [functions.compute-segments]
 verify_jwt = false
 
+[functions.compute-pyramid-tiers]
+verify_jwt = false
+
 [functions.clear-segments]
 verify_jwt = false
 
