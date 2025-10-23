@@ -18,6 +18,7 @@ import { TimePeriodSelector } from "@/components/dashboard/TimePeriodSelector";
 import { PyramidVisualization } from "@/components/dashboard/PyramidVisualization";
 import { CustomerSegmentBreakdown } from "@/components/dashboard/CustomerSegmentBreakdown";
 import { PyramidExplainer } from "@/components/dashboard/PyramidExplainer";
+import { PyramidHealthCard } from "@/components/dashboard/PyramidHealthCard";
 import { 
   Tooltip,
   TooltipContent,
@@ -236,9 +237,10 @@ export default function Dashboard() {
       {/* Pyramid Segmentation */}
       <PyramidExplainer />
       
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-3">
         <PyramidVisualization />
         <CustomerSegmentBreakdown />
+        <PyramidHealthCard />
       </div>
     </div>
   );

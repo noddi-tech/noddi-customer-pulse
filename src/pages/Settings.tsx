@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +27,7 @@ import { SyncErrorAlert } from "@/components/settings/SyncErrorAlert";
 import { DiagnosticPanel } from "@/components/settings/DiagnosticPanel";
 import { SyncDiagnosticPanel } from "@/components/settings/SyncDiagnosticPanel";
 import { UnifiedSyncDashboard } from "@/components/settings/UnifiedSyncDashboard";
+import { PyramidTestPanel } from "@/components/settings/PyramidTestPanel";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Info, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -34,6 +36,7 @@ import { formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
 
 export default function Settings() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: thresholds, refetch } = useSettings();
   const { data: syncStatus, refetch: refetchSyncStatus } = useSyncStatus();
   const { data: dbCounts, refetch: refetchDbCounts } = useDatabaseCounts();
@@ -48,6 +51,9 @@ export default function Settings() {
   
   const [confirmDeleteText, setConfirmDeleteText] = useState("");
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
+  
+  // Get active tab from URL params or default to "thresholds"
+  const activeTab = searchParams.get("tab") || "thresholds";
   
   // Track compute-specific state
   const [isComputingSegments, setIsComputingSegments] = useState(false);
@@ -203,11 +209,12 @@ export default function Settings() {
         <p className="text-muted-foreground">Configure segmentation thresholds and API settings</p>
       </div>
 
-      <Tabs defaultValue="thresholds" className="w-full">
+      <Tabs value={activeTab} onValueChange={(value) => setSearchParams({ tab: value })} className="w-full">
         <TabsList>
           <TabsTrigger value="thresholds">Lifecycle Thresholds</TabsTrigger>
           <TabsTrigger value="value">Value Model</TabsTrigger>
           <TabsTrigger value="sync">Sync</TabsTrigger>
+          <TabsTrigger value="validation">Validation</TabsTrigger>
           <TabsTrigger value="api">API Configuration</TabsTrigger>
         </TabsList>
 
@@ -641,6 +648,10 @@ export default function Settings() {
               </>
             );
           })()}
+        </TabsContent>
+
+        <TabsContent value="validation" className="space-y-4">
+          <PyramidTestPanel />
         </TabsContent>
 
         <TabsContent value="api" className="space-y-4">
