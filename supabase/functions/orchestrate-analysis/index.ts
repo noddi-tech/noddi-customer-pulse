@@ -27,25 +27,41 @@ serve(async (req) => {
       totalDuration: 0
     };
 
-    // Step 1: Compute segments (lifecycle + features)
+    // Step 1: Compute segments (lifecycle + features) in batches
     console.log("[orchestrate] Step 1/3: Computing segments...");
     const step1Start = Date.now();
     try {
-      const { data: segmentsData, error: segmentsError } = await sb.functions.invoke(
-        "compute-segments",
-        { body: {} }
-      );
+      let offset = 0;
+      let hasMore = true;
+      let totalProcessed = 0;
+      let batchCount = 0;
 
-      if (segmentsError) throw segmentsError;
+      while (hasMore) {
+        batchCount++;
+        console.log(`[orchestrate] Processing batch ${batchCount}...`);
+        
+        const { data: segmentsData, error: segmentsError } = await sb.functions.invoke(
+          "compute-segments",
+          { body: { offset } }
+        );
+
+        if (segmentsError) throw segmentsError;
+
+        totalProcessed += segmentsData.batch.processed;
+        offset = segmentsData.batch.nextOffset;
+        hasMore = segmentsData.batch.hasMore;
+        
+        console.log(`[orchestrate] Batch ${batchCount} progress: ${totalProcessed}/${segmentsData.batch.total} customers`);
+      }
 
       const step1Duration = ((Date.now() - step1Start) / 1000).toFixed(2);
       results.steps.push({
         name: "Compute Segments",
         success: true,
         duration: parseFloat(step1Duration),
-        data: segmentsData
+        data: { totalProcessed, batches: batchCount }
       });
-      console.log(`[orchestrate] ✓ Step 1 completed in ${step1Duration}s`);
+      console.log(`[orchestrate] ✓ Step 1 completed in ${step1Duration}s (${totalProcessed} customers, ${batchCount} batches)`);
     } catch (error) {
       const step1Duration = ((Date.now() - step1Start) / 1000).toFixed(2);
       results.steps.push({

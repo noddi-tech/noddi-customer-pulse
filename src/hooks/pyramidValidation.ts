@@ -177,31 +177,31 @@ export function useSegmentExamples() {
       const examples: Record<string, any[]> = {};
 
       for (const segment of ["B2C", "SMB", "Large", "Enterprise"]) {
-        const { data } = await supabase
+        // Fetch segments first
+        const { data: segmentData } = await supabase
           .from("segments")
-          .select(`
-            user_group_id,
-            customer_segment,
-            pyramid_tier,
-            pyramid_tier_name,
-            composite_score,
-            fleet_size,
-            lifecycle,
-            high_value_tire_purchaser,
-            features!inner(
-              frequency_24m,
-              revenue_24m,
-              tire_revenue_24m,
-              service_revenue_24m,
-              recency_days
-            )
-          `)
+          .select("user_group_id, customer_segment, pyramid_tier, pyramid_tier_name, composite_score, fleet_size, lifecycle, high_value_tire_purchaser")
           .eq("customer_segment", segment)
           .not("pyramid_tier", "is", null)
           .order("composite_score", { ascending: false })
           .limit(5);
 
-        examples[segment] = data || [];
+        if (segmentData && segmentData.length > 0) {
+          // Fetch corresponding features
+          const userGroupIds = segmentData.map(s => s.user_group_id);
+          const { data: featuresData } = await supabase
+            .from("features")
+            .select("user_group_id, frequency_24m, revenue_24m, tire_revenue_24m, service_revenue_24m, recency_days")
+            .in("user_group_id", userGroupIds);
+
+          // Merge data
+          examples[segment] = segmentData.map(seg => ({
+            ...seg,
+            features: featuresData?.find(f => f.user_group_id === seg.user_group_id) || null
+          }));
+        } else {
+          examples[segment] = [];
+        }
       }
 
       return examples;

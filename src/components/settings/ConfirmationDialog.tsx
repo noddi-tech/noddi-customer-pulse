@@ -64,18 +64,20 @@ export function ConfirmationDialog({
             <Icon className={cn("h-5 w-5", config.iconClass)} />
             {title}
           </AlertDialogTitle>
-          <AlertDialogDescription className="space-y-3">
-            <p>{description}</p>
-            {details.length > 0 && (
-              <div className="mt-3 space-y-1">
-                <p className="font-semibold text-foreground text-sm">This will:</p>
-                <ul className="list-disc list-inside space-y-1 text-sm">
-                  {details.map((detail, index) => (
-                    <li key={index}>{detail}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
+          <AlertDialogDescription asChild>
+            <div className="space-y-3">
+              <p>{description}</p>
+              {details.length > 0 && (
+                <div className="mt-3 space-y-1">
+                  <p className="font-semibold text-foreground text-sm">This will:</p>
+                  <ul className="list-disc list-inside space-y-1 text-sm">
+                    {details.map((detail, index) => (
+                      <li key={index}>{detail}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
