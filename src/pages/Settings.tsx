@@ -15,24 +15,12 @@ import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { RefreshCw, Lightbulb, TrendingUp, ArrowRight } from "lucide-react";
 import { useDatabaseCounts } from "@/hooks/useDatabaseCounts";
 import { useInterval } from "@/hooks/useInterval";
-import { SyncStatusCard } from "@/components/settings/SyncStatusCard";
-import { SyncProgressBar } from "@/components/settings/SyncProgressBar";
-import { SyncMetricsCards } from "@/components/settings/SyncMetricsCards";
-import { SyncWorkflowGuide } from "@/components/settings/SyncWorkflowGuide";
-import { SyncActionButtons } from "@/components/settings/SyncActionButtons";
-import { WhatsNextCallout } from "@/components/settings/WhatsNextCallout";
-import { SyncTimeline } from "@/components/settings/SyncTimeline";
-import { SyncCompleteAlert } from "@/components/settings/SyncCompleteAlert";
 import { SyncErrorAlert } from "@/components/settings/SyncErrorAlert";
-import { DiagnosticPanel } from "@/components/settings/DiagnosticPanel";
-import { SyncDiagnosticPanel } from "@/components/settings/SyncDiagnosticPanel";
-import { UnifiedSyncDashboard } from "@/components/settings/UnifiedSyncDashboard";
 import { PyramidTestPanel } from "@/components/settings/PyramidTestPanel";
-import { AnalysisPipelineCard } from "@/components/settings/AnalysisPipelineCard";
-import { AnalysisStatusCards } from "@/components/settings/AnalysisStatusCards";
 import { ConfirmationDialog } from "@/components/settings/ConfirmationDialog";
-import { GuidedTooltip, InfoBox } from "@/components/settings/GuidedTooltips";
-import { SuccessWithNextSteps } from "@/components/settings/SuccessWithNextSteps";
+import { ConsolidatedSyncStatusCard } from "@/components/settings/ConsolidatedSyncStatusCard";
+import { ConsolidatedAnalysisPipelineCard } from "@/components/settings/ConsolidatedAnalysisPipelineCard";
+import { SyncHistoryCard } from "@/components/settings/SyncHistoryCard";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Info, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -607,181 +595,46 @@ export default function Settings() {
                   />
                 ))}
 
-          {/* Unified Sync Dashboard - Single source of truth */}
-          <UnifiedSyncDashboard
-            customersStatus={userGroupsStatus}      // Map old prop to new name
-            membersStatus={customersStatus}         // Map old prop to new name
-            bookingsStatus={bookingsStatus}
-            orderLinesStatus={orderLinesStatus}
-            customersInDb={dbCounts?.customers_total || 0}   // Use renamed field
-            membersInDb={dbCounts?.members_total || 0}       // Use renamed field
-            bookingsInDb={dbCounts?.bookings_total || 0}
-            orderLinesInDb={dbCounts?.order_lines_total || 0}
+          {/* Consolidated Sync Status - Single source of truth for sync progress */}
+          <ConsolidatedSyncStatusCard
+            customerStatus={userGroupsStatus}
+            memberStatus={customersStatus}
+            bookingStatus={bookingsStatus}
+            orderLineStatus={orderLinesStatus}
+            userGroupsTotal={dbCounts?.user_groups_total || 0}
+            userGroupsB2B={dbCounts?.user_groups_b2b || 0}
+            userGroupsB2C={dbCounts?.user_groups_b2c || 0}
+            bookingsTotal={dbCounts?.bookings_total || 0}
+            bookingsWithUser={dbCounts?.bookings_with_user || 0}
+            orderLinesTotal={dbCounts?.order_lines_total || 0}
             expectedOrderLines={Math.round(expectedOrderLines)}
-            isRunning={isRunning}
-            diagnostics={syncDiagnostics as any}
-            onFixNow={() => forceFullSyncMutation.mutate({ resource: 'bookings', trigger_sync: true })}
-            onViewLogs={() => window.open('https://supabase.com/dashboard/project/wylrkmtpjodunmnwncej/functions/sync-noddi-data/logs', '_blank')}
+            isAutoSyncing={isRunning}
           />
 
-          {/* Analysis Status Cards */}
-          {isSyncComplete && (
-            <AnalysisStatusCards
-              lifecycleCount={(segmentCounts as any)?.lifecycle?.Active + (segmentCounts as any)?.lifecycle?.['At-risk'] + (segmentCounts as any)?.lifecycle?.Churned + (segmentCounts as any)?.lifecycle?.New + (segmentCounts as any)?.lifecycle?.Winback || 0}
-              pyramidCount={dbCounts?.customers_total || 0}
-              valueTierCount={(segmentCounts as any)?.value_tier?.High + (segmentCounts as any)?.value_tier?.Mid + (segmentCounts as any)?.value_tier?.Low || 0}
-              totalCustomers={dbCounts?.customers_total || 0}
-              onRunAnalysis={handleComputeSegments}
-            />
-          )}
+          {/* Consolidated Analysis Pipeline - Single source for analysis workflow */}
+          <ConsolidatedAnalysisPipelineCard
+            syncComplete={isSyncComplete}
+            customersInDb={dbCounts?.customers_total || 0}
+            segmentsComputed={(segmentCounts as any)?.lifecycle?.Active + (segmentCounts as any)?.lifecycle?.['At-risk'] + (segmentCounts as any)?.lifecycle?.Churned + (segmentCounts as any)?.lifecycle?.New + (segmentCounts as any)?.lifecycle?.Winback || 0}
+            valueTiersComputed={(segmentCounts as any)?.value_tier?.High + (segmentCounts as any)?.value_tier?.Mid + (segmentCounts as any)?.value_tier?.Low || 0}
+            pyramidTiersComputed={dbCounts?.customers_total || 0}
+            isComputing={isComputingSegments}
+            onRunAnalysis={handleComputeSegments}
+            onViewDashboard={() => window.location.href = "/"}
+            onViewSegments={() => window.location.href = "/segments"}
+            computingProgress={0}
+            bookingsCount={dbCounts?.bookings_total || 0}
+            orderLinesCount={dbCounts?.order_lines_total || 0}
+          />
 
-          {/* Analysis Pipeline Card with guidance */}
-          {isSyncComplete && (
-            <>
-              <InfoBox
-                title="🎯 Customer Analysis Workflow"
-                description="Run the complete analysis to calculate insights for all customers"
-                variant="info"
-                tips={[
-                  "Analysis automatically computes lifecycle stages, value tiers, and pyramid positioning",
-                  "Takes 1-2 minutes for 10,000+ customers",
-                  "Safe to re-run anytime - existing pyramid tiers are preserved",
-                  "View results on the Dashboard after completion"
-                ]}
-              />
-              
-              <AnalysisPipelineCard
-                syncComplete={isSyncComplete}
-                customersInDb={dbCounts?.customers_total || 0}
-                segmentsComputed={(segmentCounts as any)?.lifecycle?.Active + (segmentCounts as any)?.lifecycle?.['At-risk'] + (segmentCounts as any)?.lifecycle?.Churned + (segmentCounts as any)?.lifecycle?.New + (segmentCounts as any)?.lifecycle?.Winback || 0}
-                pyramidTiersAssigned={0} // TODO: Get from DB
-                isComputing={isComputingSegments}
-                onRunAnalysis={handleComputeSegments}
-                onViewDashboard={() => window.location.href = "/"}
-                computingProgress={0}
-              />
-            </>
-          )}
-
-          {/* Success message after analysis completes */}
-          {lastComputeTime && (
-            <SuccessWithNextSteps
-              title="Analysis Complete!"
-              description="Customer insights have been calculated successfully"
-              nextSteps={[
-                {
-                  title: "View Customer Dashboard",
-                  description: "Explore lifecycle stages, value tiers, and pyramid positioning",
-                  action: () => window.location.href = "/",
-                  actionLabel: "Open Dashboard",
-                  recommended: true
-                },
-                {
-                  title: "Explore Customer Segments",
-                  description: "Dive deep into specific customer groups and their characteristics",
-                  action: () => window.location.href = "/segments",
-                  actionLabel: "View Segments"
-                }
-              ]}
-              stats={{
-                "Customers": dbCounts?.customers_total || 0,
-                "Analyzed": (segmentCounts as any)?.lifecycle?.Active + (segmentCounts as any)?.lifecycle?.['At-risk'] + (segmentCounts as any)?.lifecycle?.Churned + (segmentCounts as any)?.lifecycle?.New + (segmentCounts as any)?.lifecycle?.Winback || 0,
-                "Duration": lastComputeTime ? `${formatDistanceToNow(lastComputeTime, { addSuffix: true })}` : "N/A"
-              }}
-            />
-          )}
-
-          {/* Sync Health Dashboard - Separate health monitoring */}
-          <SyncDiagnosticPanel />
-
-                {/* Show sync complete alert when sync is done but segments not computed */}
-                {isSyncComplete && !lastComputeTime && (
-                  <SyncCompleteAlert
-                    activeCustomers={dbCounts?.customers_total || 0}
-                    activeBookings={dbCounts?.bookings_total || 0}
-                    activeOrderLines={dbCounts?.order_lines_total || 0}
-                  />
-                )}
-
-                <WhatsNextCallout type={getWhatsNextType()} />
-
-                {/* STEP 9: Sequential Sync Explanation Card */}
-                <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
-                  <CardHeader>
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                      Sequential Sync Process
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="text-xs text-muted-foreground space-y-2">
-                    <p>Syncs run in strict order to maintain data integrity:</p>
-                    <ol className="list-decimal list-inside space-y-1 ml-2">
-                      <li><strong>User Groups</strong> must complete before Members (users belong to groups)</li>
-                      <li><strong>Members</strong> must complete before Bookings (bookings reference users)</li>
-                      <li><strong>Bookings</strong> must complete before Order Lines (lines extracted from bookings)</li>
-                    </ol>
-                    <p className="pt-2 text-blue-600 dark:text-blue-400">
-                      ⚡ Each phase completes 100% before the next begins. This ensures all data relationships are valid.
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <div className="grid md:grid-cols-2 gap-4">
-                  <SyncWorkflowGuide
-                    userGroupsComplete={userGroupsStatus?.status === 'completed'}
-                    customersComplete={customersStatus?.status === 'completed'}
-                    bookingsComplete={bookingsStatus?.status === 'completed'}
-                    orderLinesComplete={orderLinesStatus?.status === 'completed'}
-                    segmentsComputed={!!lastComputeTime}
-                    isRunning={isRunning}
-                    userGroupsStatus={userGroupsStatus}
-                    customersStatus={customersStatus}
-                    bookingsStatus={bookingsStatus}
-                    orderLinesStatus={orderLinesStatus}
-                    userGroupsInDb={dbCounts?.user_groups_total || 0}
-                    customersInDb={dbCounts?.customers_total || 0}
-                    bookingsInDb={dbCounts?.bookings_total || 0}
-                    orderLinesInDb={dbCounts?.order_lines_total || 0}
-                  />
-                  <SyncTimeline events={syncEvents} />
-                </div>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Data Metrics</CardTitle>
-                    <CardDescription>
-                      Database statistics and counts
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <SyncMetricsCards
-                      userGroupsActive={dbCounts?.user_groups_active || 0}
-                      userGroupsTotal={dbCounts?.user_groups_total || 0}
-                      userGroupsB2B={dbCounts?.user_groups_b2b || 0}
-                      userGroupsB2C={dbCounts?.user_groups_b2c || 0}
-                      bookingsCount={dbCounts?.bookings || 0}
-                      bookingsTotal={dbCounts?.bookings_total || 0}
-                      bookingsWithUser={dbCounts?.bookings_with_user || 0}
-                      orderLines={dbCounts?.order_lines || 0}
-                      orderLinesTotal={dbCounts?.order_lines_total || 0}
-                      expectedOrderLines={Math.round(expectedOrderLines)}
-                      lastSync={customersStatus?.last_run_at || null}
-                    />
-                  </CardContent>
-                </Card>
-
-                <SyncActionButtons
-                  syncState={syncState}
-                  onSyncNow={() => syncMutation.mutate()}
-                  onComputeSegments={handleComputeSegments}
-                  onViewDashboard={() => window.location.href = "/"}
-                  onResetSync={handleResetSync}
-                  onReExtractOrderLines={handleReExtractOrderLines}
-                  isSyncing={syncMutation.isPending || isRunning}
-                  isComputing={isComputingSegments}
-                  phase3Progress={orderLinesProgress}
-                  estimatedTime={estimateOrderLinesTime()}
-                />
+          {/* Sync History & Advanced Actions */}
+          <SyncHistoryCard
+            events={syncEvents}
+            onReExtractOrderLines={handleReExtractOrderLines}
+            onForceFullSync={handleResetSync}
+            onViewLogs={() => window.open('https://supabase.com/dashboard/project/wylrkmtpjodunmnwncej/functions/sync-noddi-data/logs', '_blank')}
+            isLoading={syncMutation.isPending || isRunning}
+          />
               </>
             );
           })()}
@@ -819,8 +672,6 @@ export default function Settings() {
               </Button>
             </CardContent>
           </Card>
-
-          <DiagnosticPanel />
           
           {/* Danger Zone */}
           <Card className="border-destructive">
