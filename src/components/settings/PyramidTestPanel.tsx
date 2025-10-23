@@ -20,6 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 export function PyramidTestPanel() {
+  // Auto-run validation on mount and every 30 seconds
   const { data: validation, isLoading, refetch, isRefetching } = usePyramidValidation();
   const { data: examples, isLoading: examplesLoading } = useSegmentExamples();
   const computeMutation = useComputeSegments();
@@ -82,29 +83,15 @@ export function PyramidTestPanel() {
               Phase 2 implementation testing & diagnostics
             </CardDescription>
           </div>
-          <div className="flex gap-2">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => refetch()} 
-              disabled={isRefetching}
-            >
-              <RefreshCw className={`h-4 w-4 mr-2 ${isRefetching ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-            <Button 
-              size="sm" 
-              onClick={handleRecompute}
-              disabled={computeMutation.isPending}
-            >
-              {computeMutation.isPending ? (
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <TestTube2 className="h-4 w-4 mr-2" />
-              )}
-              Run Test
-            </Button>
-          </div>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => refetch()} 
+            disabled={isRefetching}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${isRefetching ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -118,11 +105,30 @@ export function PyramidTestPanel() {
         }>
           {statusIcon[validation.overall_status]}
           <AlertTitle>
-            Overall Status: {validation.overall_status === "pass" ? "Healthy" : validation.overall_status === "warning" ? "Needs Attention" : "Issues Detected"}
+            Overall Status: {validation.overall_status === "pass" ? "✓ Healthy" : validation.overall_status === "warning" ? "⚠️ Needs Attention" : "❌ Issues Detected"}
           </AlertTitle>
-          <AlertDescription>
-            {validation.summary.customers_with_pyramid} / {validation.summary.total_customers} customers have pyramid tiers assigned 
-            ({validation.summary.coverage_percentage}% feature coverage)
+          <AlertDescription className="space-y-2">
+            <div>
+              {validation.summary.customers_with_pyramid} / {validation.summary.total_customers} customers have pyramid tiers assigned 
+              ({validation.summary.coverage_percentage}% feature coverage)
+            </div>
+            {validation.overall_status !== "pass" && (
+              <div className="pt-2">
+                <Button 
+                  size="sm" 
+                  variant="outline"
+                  onClick={handleRecompute}
+                  disabled={computeMutation.isPending}
+                >
+                  {computeMutation.isPending ? (
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <TrendingUp className="h-4 w-4 mr-2" />
+                  )}
+                  Run Analysis to Fix
+                </Button>
+              </div>
+            )}
           </AlertDescription>
         </Alert>
 

@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useSyncStatus } from "@/hooks/segmentation";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { RefreshCw, Lightbulb, TrendingUp, ArrowRight } from "lucide-react";
 import { useDatabaseCounts } from "@/hooks/useDatabaseCounts";
 import { useInterval } from "@/hooks/useInterval";
@@ -28,6 +28,8 @@ import { DiagnosticPanel } from "@/components/settings/DiagnosticPanel";
 import { SyncDiagnosticPanel } from "@/components/settings/SyncDiagnosticPanel";
 import { UnifiedSyncDashboard } from "@/components/settings/UnifiedSyncDashboard";
 import { PyramidTestPanel } from "@/components/settings/PyramidTestPanel";
+import { AnalysisPipelineCard } from "@/components/settings/AnalysisPipelineCard";
+import { AnalysisStatusCards } from "@/components/settings/AnalysisStatusCards";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Info, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -59,6 +61,17 @@ export default function Settings() {
   const [isComputingSegments, setIsComputingSegments] = useState(false);
   const [lastComputeTime, setLastComputeTime] = useState<Date | null>(null);
   const [activePhaseRef, setActivePhaseRef] = useState<HTMLDivElement | null>(null);
+
+  // Query for segment counts to power status cards
+  const { data: segmentCounts } = useQuery({
+    queryKey: ["segment-counts"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("get_segment_counts");
+      if (error) throw error;
+      return data;
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
 
   // Auto-refresh when sync is running
   const isAnySyncRunning = syncStatus?.some((s) => s.status === "running") ?? false;
@@ -553,6 +566,31 @@ export default function Settings() {
             onFixNow={() => forceFullSyncMutation.mutate({ resource: 'bookings', trigger_sync: true })}
             onViewLogs={() => window.open('https://supabase.com/dashboard/project/wylrkmtpjodunmnwncej/functions/sync-noddi-data/logs', '_blank')}
           />
+
+          {/* Analysis Status Cards */}
+          {isSyncComplete && (
+            <AnalysisStatusCards
+              lifecycleCount={(segmentCounts as any)?.lifecycle?.Active + (segmentCounts as any)?.lifecycle?.['At-risk'] + (segmentCounts as any)?.lifecycle?.Churned + (segmentCounts as any)?.lifecycle?.New + (segmentCounts as any)?.lifecycle?.Winback || 0}
+              pyramidCount={dbCounts?.customers_total || 0}
+              valueTierCount={(segmentCounts as any)?.value_tier?.High + (segmentCounts as any)?.value_tier?.Mid + (segmentCounts as any)?.value_tier?.Low || 0}
+              totalCustomers={dbCounts?.customers_total || 0}
+              onRunAnalysis={handleComputeSegments}
+            />
+          )}
+
+          {/* Analysis Pipeline Card */}
+          {isSyncComplete && (
+            <AnalysisPipelineCard
+              syncComplete={isSyncComplete}
+              customersInDb={dbCounts?.customers_total || 0}
+              segmentsComputed={(segmentCounts as any)?.lifecycle?.Active + (segmentCounts as any)?.lifecycle?.['At-risk'] + (segmentCounts as any)?.lifecycle?.Churned + (segmentCounts as any)?.lifecycle?.New + (segmentCounts as any)?.lifecycle?.Winback || 0}
+              pyramidTiersAssigned={0} // TODO: Get from DB
+              isComputing={isComputingSegments}
+              onRunAnalysis={handleComputeSegments}
+              onViewDashboard={() => window.location.href = "/"}
+              computingProgress={0}
+            />
+          )}
 
           {/* Sync Health Dashboard - Separate health monitoring */}
           <SyncDiagnosticPanel />
