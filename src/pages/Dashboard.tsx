@@ -19,6 +19,7 @@ import { PyramidVisualization } from "@/components/dashboard/PyramidVisualizatio
 import { CustomerSegmentBreakdown } from "@/components/dashboard/CustomerSegmentBreakdown";
 import { PyramidExplainer } from "@/components/dashboard/PyramidExplainer";
 import { PyramidHealthCard } from "@/components/dashboard/PyramidHealthCard";
+import { PyramidActionableInsights } from "@/components/dashboard/PyramidActionableInsights";
 import { 
   Tooltip,
   TooltipContent,
@@ -242,6 +243,8 @@ export default function Dashboard() {
         <CustomerSegmentBreakdown />
         <PyramidHealthCard />
       </div>
+
+      <PyramidActionableInsights />
     </div>
   );
 }

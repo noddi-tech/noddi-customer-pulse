@@ -1,8 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePyramidValidation } from "@/hooks/pyramidValidation";
-import { CheckCircle2, AlertTriangle, XCircle, ArrowRight } from "lucide-react";
+import { CheckCircle2, AlertTriangle, XCircle, ArrowRight, Info } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -57,15 +58,32 @@ export function PyramidHealthCard() {
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center justify-between">
-          <span>Pyramid Health</span>
+          <div className="flex items-center gap-2">
+            <span>Pyramid Health</span>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button className="text-muted-foreground hover:text-foreground transition-colors">
+                    <Info className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-xs">
+                  <p className="text-xs">
+                    Real-time validation of pyramid segmentation quality, including feature coverage, 
+                    segment assignments, and tier distribution health checks.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
           <Badge className={config.bgColor + " " + config.color}>
             {config.label}
           </Badge>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className={`flex items-center gap-3 p-3 rounded-lg ${config.bgColor}`}>
-          <Icon className={`h-8 w-8 ${config.color}`} />
+        <div className={`flex items-center gap-3 p-3 rounded-lg ${config.bgColor} transition-all duration-300`}>
+          <Icon className={`h-8 w-8 ${config.color} transition-transform duration-300 group-hover:scale-110`} />
           <div className="flex-1">
             <div className="font-semibold">{config.label}</div>
             <div className="text-sm text-muted-foreground">
@@ -102,11 +120,11 @@ export function PyramidHealthCard() {
 
         <Button 
           variant="outline" 
-          className="w-full" 
+          className="w-full group hover:bg-primary hover:text-primary-foreground transition-all duration-300" 
           onClick={() => navigate('/settings?tab=validation')}
         >
           View Full Report
-          <ArrowRight className="ml-2 h-4 w-4" />
+          <ArrowRight className="ml-2 h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
         </Button>
       </CardContent>
     </Card>

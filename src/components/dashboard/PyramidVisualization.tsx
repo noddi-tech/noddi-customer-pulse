@@ -1,11 +1,25 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePyramidTierCounts, useDormantCounts } from "@/hooks/pyramidSegmentation";
-import { TrendingUp, Users, Award, Target, Sparkles } from "lucide-react";
+import { TrendingUp, Users, Award, Target, Sparkles, Download, HelpCircle } from "lucide-react";
+import { toast } from "sonner";
+import { exportPyramidAnalysis } from "@/utils/pyramidExport";
 
 export function PyramidVisualization() {
   const { data: tierCounts, isLoading } = usePyramidTierCounts();
   const { data: dormantCounts } = useDormantCounts();
+
+  const handleExport = async () => {
+    try {
+      const count = await exportPyramidAnalysis();
+      toast.success(`Exported ${count} customer records`);
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.error("Failed to export pyramid data");
+    }
+  };
 
   if (isLoading || !tierCounts) {
     return (
@@ -36,6 +50,13 @@ export function PyramidVisualization() {
       icon: Award,
       description: "Top-tier customers: Active + (high composite score OR storage OR high-value tire OR enterprise)",
       width: "w-1/4",
+      criteria: [
+        "✓ Active lifecycle status",
+        "✓ Composite score ≥0.75, OR",
+        "✓ Storage contract active, OR",
+        "✓ High-value tire purchaser (€8k+ order), OR",
+        "✓ Enterprise customer segment"
+      ],
     },
     {
       name: "Loyalist",
@@ -46,6 +67,11 @@ export function PyramidVisualization() {
       icon: Sparkles,
       description: "Active with mid+ score OR At-risk with high score",
       width: "w-2/5",
+      criteria: [
+        "✓ Active AND composite score ≥0.5, OR",
+        "✓ At-risk AND composite score ≥0.7",
+        "Consistent performers who return regularly"
+      ],
     },
     {
       name: "Engaged",
@@ -56,6 +82,11 @@ export function PyramidVisualization() {
       icon: TrendingUp,
       description: "Active/At-risk with 2+ lifetime bookings OR Winback with mid+ score",
       width: "w-3/5",
+      criteria: [
+        "✓ (Active OR At-risk) AND 2+ lifetime bookings, OR",
+        "✓ Winback status AND composite score ≥0.5",
+        "Building relationship with consistent engagement"
+      ],
     },
     {
       name: "Prospect",
@@ -66,19 +97,32 @@ export function PyramidVisualization() {
       icon: Target,
       description: "New customers, winbacks, or single booking <180 days old",
       width: "w-4/5",
+      criteria: [
+        "✓ New or Winback lifecycle, OR",
+        "✓ Single booking AND <180 days since last booking",
+        "Early-stage relationship potential"
+      ],
     },
   ];
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Users className="h-5 w-5" />
-          Customer Value Pyramid
-        </CardTitle>
-        <CardDescription>
-          {totalTiered.toLocaleString()} tiered customers + {totalDormant.toLocaleString()} in dormant pool
-        </CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Customer Value Pyramid
+            </CardTitle>
+            <CardDescription>
+              {totalTiered.toLocaleString()} tiered customers + {totalDormant.toLocaleString()} in dormant pool
+            </CardDescription>
+          </div>
+          <Button variant="outline" size="sm" onClick={handleExport}>
+            <Download className="h-4 w-4 mr-2" />
+            Export
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Pyramid Visual */}
@@ -98,6 +142,23 @@ export function PyramidVisualization() {
                     <Badge variant="outline" className={tier.textColor}>
                       {tier.count.toLocaleString()}
                     </Badge>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button className="text-muted-foreground hover:text-foreground transition-colors">
+                            <HelpCircle className="h-4 w-4" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-xs">
+                          <div className="space-y-1">
+                            <p className="font-semibold">{tier.name} Tier Criteria:</p>
+                            {tier.criteria.map((criterion, idx) => (
+                              <p key={idx} className="text-xs">{criterion}</p>
+                            ))}
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
                   <span className="text-sm text-muted-foreground">{percentage}%</span>
                 </div>
@@ -105,11 +166,11 @@ export function PyramidVisualization() {
                 {/* Pyramid Bar */}
                 <div className="flex justify-center">
                   <div 
-                    className={`${tier.width} transition-all duration-300`}
+                    className={`${tier.width} transition-all duration-500 ease-out hover:scale-105`}
                     style={{ maxWidth: '100%' }}
                   >
                     <div 
-                      className={`h-12 ${tier.color} rounded-lg shadow-md flex items-center justify-center text-white font-semibold border-2 ${tier.borderColor}`}
+                      className={`h-12 ${tier.color} rounded-lg shadow-lg hover:shadow-xl transition-shadow duration-300 flex items-center justify-center text-white font-semibold border-2 ${tier.borderColor}`}
                     >
                       {percentage}%
                     </div>
