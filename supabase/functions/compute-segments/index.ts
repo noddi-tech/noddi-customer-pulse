@@ -578,9 +578,10 @@ serve(async (req) => {
 
     console.log(`[BATCH STATS] Customers with bookings: ${processedWithBookings}, User groups without bookings (skipped): ${skippedNoBookings}, Total user_groups in batch: ${batchProcessed}\n`);
     
-    const hasMore = (batchOffset + batchSize) < totalCustomers;
+    // CRITICAL: Use nextOffset to check if there are more customers remaining
     const nextOffset = batchOffset + batchSize;
-    const progressPercent = Math.round(((batchOffset + batchProcessed) / totalCustomers) * 100);
+    const hasMore = nextOffset < totalCustomers;
+    const progressPercent = Math.round((nextOffset / totalCustomers) * 100);
 
     console.log(`[BATCH STATS] Processed: ${processedWithBookings}, Skipped (no bookings): ${skippedNoBookings}, Total in batch: ${batchUserGroupIds.length}`);
 

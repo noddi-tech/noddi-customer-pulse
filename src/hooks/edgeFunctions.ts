@@ -100,6 +100,12 @@ export function useComputeSegments() {
             offset = batchData.batch.nextOffset;
             hasMore = batchData.batch.hasMore;
             
+            // SAFETY: Stop if we've processed all customers (handles edge case of skipped records)
+            if (totalProcessed >= totalCustomers) {
+              console.log('[FRONTEND] ⚠️ Processed count >= total, stopping early');
+              hasMore = false;
+            }
+            
             // Calculate progress (0-70% for segment batches)
             const segmentProgress = (totalProcessed / totalCustomers) * 70;
             
