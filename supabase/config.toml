@@ -1,5 +1,8 @@
 project_id = "wylrkmtpjodunmnwncej"
 
+[api]
+max_rows = 50000
+
 # Sync and data management functions - v1.0.2
 [functions.sync-noddi-data]
 verify_jwt = false

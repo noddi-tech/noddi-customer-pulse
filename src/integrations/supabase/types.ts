@@ -683,6 +683,20 @@ export type Database = {
           period_order: number
         }[]
       }
+      get_customer_segment_counts: {
+        Args: never
+        Returns: {
+          count: number
+          customer_segment: string
+        }[]
+      }
+      get_dormant_counts: {
+        Args: never
+        Returns: {
+          count: number
+          dormant_segment: string
+        }[]
+      }
       get_inactive_customer_count: { Args: never; Returns: number }
       get_lifecycle_insights:
         | {
@@ -708,6 +722,13 @@ export type Database = {
             }[]
           }
       get_product_line_stats: { Args: never; Returns: Json }
+      get_pyramid_tier_counts: {
+        Args: never
+        Returns: {
+          count: number
+          pyramid_tier_name: string
+        }[]
+      }
       get_segment_counts: { Args: never; Returns: Json }
     }
     Enums: {

@@ -339,6 +339,8 @@ export function useComputeSegments() {
       queryClient.invalidateQueries({ queryKey: ["pyramid-tier-counts"] });
       queryClient.invalidateQueries({ queryKey: ["dormant-counts"] });
       queryClient.invalidateQueries({ queryKey: ["customer-segment-counts"] });
+      queryClient.invalidateQueries({ queryKey: ["pyramid-validation"] });
+      queryClient.invalidateQueries({ queryKey: ["pyramid-tier-total"] });
     },
     onError: (error) => {
       toast.error(`Segment computation failed: ${error.message}`);

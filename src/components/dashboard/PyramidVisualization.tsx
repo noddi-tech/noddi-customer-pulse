@@ -4,13 +4,23 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { usePyramidTierCounts, useDormantCounts } from "@/hooks/pyramidSegmentation";
-import { TrendingUp, Users, Award, Target, Sparkles, Download, HelpCircle, Info } from "lucide-react";
+import { TrendingUp, Users, Award, Target, Sparkles, Download, HelpCircle, Info, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { exportPyramidAnalysis } from "@/utils/pyramidExport";
 
 export function PyramidVisualization() {
-  const { data: tierCounts, isLoading } = usePyramidTierCounts();
-  const { data: dormantCounts } = useDormantCounts();
+  const { data: tierCounts, isLoading, refetch: refetchTiers } = usePyramidTierCounts();
+  const { data: dormantCounts, refetch: refetchDormant } = useDormantCounts();
+
+  const handleRefresh = async () => {
+    try {
+      await Promise.all([refetchTiers(), refetchDormant()]);
+      toast.success("Pyramid data refreshed");
+    } catch (error) {
+      console.error("Refresh error:", error);
+      toast.error("Failed to refresh pyramid data");
+    }
+  };
 
   const handleExport = async () => {
     try {
@@ -157,10 +167,16 @@ export function PyramidVisualization() {
               {totalTiered.toLocaleString()} tiered customers + {totalDormant.toLocaleString()} in dormant pool
             </CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={handleExport}>
-            <Download className="h-4 w-4 mr-2" />
-            Export
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={handleRefresh}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleExport}>
+              <Download className="h-4 w-4 mr-2" />
+              Export
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
