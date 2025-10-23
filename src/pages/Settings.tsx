@@ -532,10 +532,9 @@ export default function Settings() {
                 toast.dismiss('compute-progress');
                 
                 // Show success message with next steps
-                if (result?.steps) {
-                  const successCount = result.steps.filter((s: any) => s.success).length;
+                if (result?.totalCustomers && result?.duration !== undefined) {
                   toast.success(
-                    `✓ Analysis complete! Successfully ran ${successCount}/3 steps in ${duration}s`,
+                    `✓ Analysis complete! Processed ${result.totalCustomers.toLocaleString()} customers in ${duration}s`,
                     { duration: 5000 }
                   );
                 } else {

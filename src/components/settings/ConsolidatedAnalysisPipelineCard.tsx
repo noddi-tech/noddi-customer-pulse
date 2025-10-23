@@ -202,14 +202,27 @@ export function ConsolidatedAnalysisPipelineCard({
           <Alert className="border-primary/50 bg-primary/5">
             <Loader2 className="h-4 w-4 animate-spin" />
             <AlertDescription>
-              <div className="space-y-2">
-                <p className="font-medium">Analysis in progress...</p>
+              <div className="space-y-3">
+                <div>
+                  <p className="font-medium">Analysis in progress...</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {computingProgress < 70 ? 'Step 1/3: Computing lifecycle segments' :
+                     computingProgress < 85 ? 'Step 2/3: Computing value tiers' :
+                     'Step 3/3: Computing pyramid tiers'}
+                  </p>
+                </div>
+                
                 <Progress value={computingProgress} className="h-2" />
-                <p className="text-sm text-muted-foreground">
-                  {Math.round(computingProgress)}% complete • Processing {segmentsComputed.toLocaleString()} of {customersInDb.toLocaleString()} customers
-                </p>
+                
+                <div className="flex items-center justify-between text-sm">
+                  <span className="font-semibold">{Math.round(computingProgress)}% complete</span>
+                  <span className="text-muted-foreground">
+                    {segmentsComputed.toLocaleString()} / {customersInDb.toLocaleString()} customers
+                  </span>
+                </div>
+                
                 <p className="text-xs text-muted-foreground">
-                  Computing lifecycle stages, value tiers, and pyramid positioning • Check console for detailed progress
+                  ⏱️ Estimated time: 6-8 minutes • Check browser console for detailed progress
                 </p>
               </div>
             </AlertDescription>

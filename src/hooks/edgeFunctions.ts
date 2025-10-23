@@ -36,116 +36,128 @@ export function useComputeSegments() {
       onProgress?: (progress: number, processed: number, total: number) => void;
       useOrchestration?: boolean;
     } = {}) => {
-      // Use the unified orchestration function by default for simplicity
+      // Frontend-controlled batch processing for bulletproof execution
       if (useOrchestration) {
-        console.log('[FRONTEND] 🚀 Starting complete analysis pipeline...');
-        console.log('[FRONTEND] 📊 This will process all customers in batches (5-7 minutes)');
+        console.log('[FRONTEND] 🚀 Starting complete analysis pipeline');
+        console.log('[FRONTEND] ⚙️ Architecture: Frontend-controlled batch processing');
         
-        // Trigger the background analysis
+        const startTime = Date.now();
+        let offset = 0;
+        let batchNumber = 0;
+        let totalProcessed = 0;
+        let totalCustomers = 0;
+        
         try {
-          const { data, error } = await supabase.functions.invoke("orchestrate-analysis");
+          // ============================================
+          // STEP 1: Process ALL segment batches (70% of progress)
+          // ============================================
+          console.log('[FRONTEND] 📦 Step 1/3: Computing lifecycle segments (batched)');
           
-          if (error) {
-            console.error('[FRONTEND] ❌ Failed to start analysis:', error);
-            throw error;
+          let hasMore = true;
+          const MAX_BATCHES = 250; // Safety limit
+          const BATCH_SIZE = 58; // Ensures <2s execution per batch
+          const MAX_RETRIES = 3;
+          
+          while (hasMore && batchNumber < MAX_BATCHES) {
+            batchNumber++;
+            console.log(`[FRONTEND] 🔄 Processing batch ${batchNumber}...`);
+            
+            // Retry logic for individual batch
+            let retries = 0;
+            let batchSuccess = false;
+            let batchData: any;
+            
+            while (retries < MAX_RETRIES && !batchSuccess) {
+              try {
+                const { data, error } = await supabase.functions.invoke('compute-segments', {
+                  body: { offset, batch_size: BATCH_SIZE }
+                });
+                
+                if (error) throw error;
+                
+                batchData = data;
+                batchSuccess = true;
+                
+              } catch (error) {
+                retries++;
+                console.warn(`[FRONTEND] ⚠️ Batch ${batchNumber} attempt ${retries} failed:`, error);
+                
+                if (retries >= MAX_RETRIES) {
+                  console.error(`[FRONTEND] ❌ Batch ${batchNumber} failed after ${MAX_RETRIES} attempts`);
+                  throw error;
+                }
+                
+                // Exponential backoff
+                const delayMs = Math.pow(2, retries) * 1000;
+                console.log(`[FRONTEND] 🔄 Retrying in ${delayMs}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+              }
+            }
+            
+            // Update counters
+            totalProcessed += batchData.batch.processed;
+            totalCustomers = batchData.batch.total;
+            offset = batchData.batch.nextOffset;
+            hasMore = batchData.batch.hasMore;
+            
+            // Calculate progress (0-70% for segment batches)
+            const segmentProgress = (totalProcessed / totalCustomers) * 70;
+            
+            console.log(
+              `[FRONTEND] 📊 Batch ${batchNumber}: ` +
+              `${totalProcessed}/${totalCustomers} customers (${Math.round(segmentProgress)}%)`
+            );
+            
+            // Update UI
+            onProgress?.(segmentProgress, totalProcessed, totalCustomers);
+            
+            // Small delay to avoid rate limiting
+            await new Promise(resolve => setTimeout(resolve, 100));
           }
           
-          console.log('[FRONTEND] ✅ Analysis started:', data);
+          if (batchNumber >= MAX_BATCHES) {
+            throw new Error('Safety limit reached - possible infinite loop');
+          }
+          
+          console.log(`[FRONTEND] ✅ Step 1 complete: ${totalProcessed} customers in ${batchNumber} batches`);
+          
+          // ============================================
+          // STEP 2 & 3: Compute value tiers and pyramid tiers (70-100% progress)
+          // ============================================
+          console.log('[FRONTEND] 🎯 Step 2/3: Computing value tiers and pyramid tiers');
+          onProgress?.(70, totalProcessed, totalCustomers);
+          
+          const { data: finalData, error: finalError } = await supabase.functions.invoke(
+            'orchestrate-analysis'
+          );
+          
+          if (finalError) {
+            console.error('[FRONTEND] ❌ Final steps failed:', finalError);
+            throw finalError;
+          }
+          
+          console.log('[FRONTEND] ✅ Steps 2 & 3 complete:', finalData);
+          onProgress?.(100, totalProcessed, totalCustomers);
+          
+          // ============================================
+          // COMPLETE
+          // ============================================
+          const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+          console.log(`[FRONTEND] 🎉 Analysis complete in ${duration}s`);
+          console.log(`[FRONTEND] 📊 Final: ${totalProcessed} customers processed`);
+          
+          return {
+            success: true,
+            totalCustomers: totalProcessed,
+            batches: batchNumber,
+            duration: parseFloat(duration)
+          };
+          
         } catch (error) {
-          console.error('[FRONTEND] ❌ Error triggering analysis:', error);
+          const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+          console.error(`[FRONTEND] ❌ Analysis failed after ${duration}s:`, error);
           throw error;
         }
-        
-        // Start polling for progress
-        console.log('[FRONTEND] 🔄 Polling for progress every 2 seconds...');
-        const startTime = Date.now();
-        let previousProgress = 0;
-        
-        const pollForProgress = async (): Promise<any> => {
-          return new Promise((resolve, reject) => {
-            const pollInterval = setInterval(async () => {
-              try {
-                // Get total customer count
-                const { count: totalCustomers } = await supabase
-                  .from('user_groups')
-                  .select('*', { count: 'exact', head: true });
-                
-                // Get counts for each analysis type
-                const { count: lifecycleCount } = await supabase
-                  .from('segments')
-                  .select('*', { count: 'exact', head: true })
-                  .not('lifecycle', 'is', null);
-                
-                const { count: valueTierCount } = await supabase
-                  .from('segments')
-                  .select('*', { count: 'exact', head: true })
-                  .not('value_tier', 'is', null);
-                
-                const { count: pyramidCount } = await supabase
-                  .from('segments')
-                  .select('*', { count: 'exact', head: true })
-                  .not('pyramid_tier', 'is', null);
-                
-                const total = totalCustomers || 11267;
-                
-                // Calculate average progress across all three types
-                const avgProgress = ((
-                  (lifecycleCount || 0) + 
-                  (valueTierCount || 0) + 
-                  (pyramidCount || 0)
-                ) / (3 * total)) * 100;
-                
-                // Only log if progress changed significantly (to avoid spam)
-                if (Math.abs(avgProgress - previousProgress) >= 5 || avgProgress >= 99) {
-                  console.log(
-                    `[FRONTEND] 📈 Progress: ${Math.round(avgProgress)}% | ` +
-                    `Lifecycle: ${lifecycleCount}/${total} | ` +
-                    `Value Tiers: ${valueTierCount}/${total} | ` +
-                    `Pyramid: ${pyramidCount}/${total}`
-                  );
-                  previousProgress = avgProgress;
-                }
-                
-                // Update UI progress
-                onProgress?.(avgProgress, lifecycleCount || 0, total);
-                
-                // Check if complete (all three at 100%)
-                if (
-                  lifecycleCount === total &&
-                  valueTierCount === total &&
-                  pyramidCount === total
-                ) {
-                  clearInterval(pollInterval);
-                  const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-                  console.log(`[FRONTEND] ✅ Analysis complete! (${duration}s)`);
-                  console.log(`[FRONTEND] 📊 Final counts: Lifecycle=${lifecycleCount}, Value=${valueTierCount}, Pyramid=${pyramidCount}`);
-                  
-                  // Final progress update
-                  onProgress?.(100, total, total);
-                  
-                  resolve({
-                    success: true,
-                    totalCustomers: total,
-                    duration: parseFloat(duration)
-                  });
-                }
-                
-                // Timeout after 10 minutes
-                if (Date.now() - startTime > 600000) {
-                  clearInterval(pollInterval);
-                  console.error('[FRONTEND] ⏱️ Analysis timed out after 10 minutes');
-                  reject(new Error('Analysis timed out'));
-                }
-              } catch (error) {
-                clearInterval(pollInterval);
-                console.error('[FRONTEND] ❌ Polling error:', error);
-                reject(error);
-              }
-            }, 2000); // Poll every 2 seconds
-          });
-        };
-        
-        return await pollForProgress();
       }
       
       // Legacy batch processing (kept for backwards compatibility / debugging)
@@ -280,21 +292,15 @@ export function useComputeSegments() {
       throw new Error(`Exceeded maximum batch count (${MAX_BATCHES}). Last offset: ${offset}, total processed: ${totalProcessed}/${totalCustomers}. This indicates a batching loop issue in the edge function.`);
     },
     onSuccess: (data) => {
-      // Check if using orchestration or legacy batch processing
-      if (data?.steps) {
-        // Orchestration response (old format, won't happen with polling)
-        const successSteps = data.steps.filter((s: any) => s.success).length;
-        toast.success(
-          `Analysis complete! Successfully ran ${successSteps}/3 steps in ${data.totalDuration}s`
-        );
-      } else if (data?.totalCustomers) {
-        // New polling response format
+      // Check response format and show appropriate success message
+      if (data?.totalCustomers && data?.duration !== undefined) {
+        // New frontend-controlled batch processing format
         toast.success(
           `Analysis complete! Processed ${data.totalCustomers.toLocaleString()} customers in ${data.duration}s`
         );
       } else {
         // Legacy response
-        toast.success(`Computed segments for ${data.users} customers`);
+        toast.success(`Computed segments for ${data.users || 0} customers`);
       }
       
       queryClient.invalidateQueries({ queryKey: ["customers"] });
