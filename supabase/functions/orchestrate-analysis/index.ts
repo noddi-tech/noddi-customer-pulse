@@ -1,0 +1,146 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+const sb = createClient(
+  Deno.env.get("SUPABASE_URL")!,
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+);
+
+console.log('[DEPLOY-CHECK] orchestrate-analysis v1.0.0 deployed successfully');
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    console.log("[orchestrate] Starting complete customer analysis pipeline...");
+    const startTime = Date.now();
+    const results: any = {
+      steps: [],
+      success: true,
+      totalDuration: 0
+    };
+
+    // Step 1: Compute segments (lifecycle + features)
+    console.log("[orchestrate] Step 1/3: Computing segments...");
+    const step1Start = Date.now();
+    try {
+      const { data: segmentsData, error: segmentsError } = await sb.functions.invoke(
+        "compute-segments",
+        { body: {} }
+      );
+
+      if (segmentsError) throw segmentsError;
+
+      const step1Duration = ((Date.now() - step1Start) / 1000).toFixed(2);
+      results.steps.push({
+        name: "Compute Segments",
+        success: true,
+        duration: parseFloat(step1Duration),
+        data: segmentsData
+      });
+      console.log(`[orchestrate] ✓ Step 1 completed in ${step1Duration}s`);
+    } catch (error) {
+      const step1Duration = ((Date.now() - step1Start) / 1000).toFixed(2);
+      results.steps.push({
+        name: "Compute Segments",
+        success: false,
+        duration: parseFloat(step1Duration),
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+      results.success = false;
+      throw new Error(`Compute segments failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+
+    // Step 2: Compute value tiers
+    console.log("[orchestrate] Step 2/3: Computing value tiers...");
+    const step2Start = Date.now();
+    try {
+      const { data: valueTiersData, error: valueTiersError } = await sb.functions.invoke(
+        "compute-value-tiers",
+        { body: {} }
+      );
+
+      if (valueTiersError) throw valueTiersError;
+
+      const step2Duration = ((Date.now() - step2Start) / 1000).toFixed(2);
+      results.steps.push({
+        name: "Compute Value Tiers",
+        success: true,
+        duration: parseFloat(step2Duration),
+        data: valueTiersData
+      });
+      console.log(`[orchestrate] ✓ Step 2 completed in ${step2Duration}s`);
+    } catch (error) {
+      const step2Duration = ((Date.now() - step2Start) / 1000).toFixed(2);
+      results.steps.push({
+        name: "Compute Value Tiers",
+        success: false,
+        duration: parseFloat(step2Duration),
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+      results.success = false;
+      throw new Error(`Compute value tiers failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+
+    // Step 3: Compute pyramid tiers
+    console.log("[orchestrate] Step 3/3: Computing pyramid tiers...");
+    const step3Start = Date.now();
+    try {
+      const { data: pyramidTiersData, error: pyramidTiersError } = await sb.functions.invoke(
+        "compute-pyramid-tiers",
+        { body: {} }
+      );
+
+      if (pyramidTiersError) throw pyramidTiersError;
+
+      const step3Duration = ((Date.now() - step3Start) / 1000).toFixed(2);
+      results.steps.push({
+        name: "Compute Pyramid Tiers",
+        success: true,
+        duration: parseFloat(step3Duration),
+        data: pyramidTiersData
+      });
+      console.log(`[orchestrate] ✓ Step 3 completed in ${step3Duration}s`);
+    } catch (error) {
+      const step3Duration = ((Date.now() - step3Start) / 1000).toFixed(2);
+      results.steps.push({
+        name: "Compute Pyramid Tiers",
+        success: false,
+        duration: parseFloat(step3Duration),
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+      results.success = false;
+      throw new Error(`Compute pyramid tiers failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+
+    // Calculate total duration
+    results.totalDuration = parseFloat(((Date.now() - startTime) / 1000).toFixed(2));
+    
+    console.log(`[orchestrate] ✓ Complete analysis pipeline finished in ${results.totalDuration}s`);
+    console.log("[orchestrate] Results:", JSON.stringify(results, null, 2));
+
+    return new Response(
+      JSON.stringify(results),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+
+  } catch (error) {
+    console.error("[orchestrate] Error:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    return new Response(
+      JSON.stringify({ 
+        success: false,
+        error: errorMessage,
+        steps: []
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
+    );
+  }
+});

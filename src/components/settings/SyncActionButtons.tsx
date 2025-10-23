@@ -147,9 +147,10 @@ export function SyncActionButtons({
                 onClick={onComputeSegments} 
                 disabled={isComputing} 
                 className="flex-1 bg-green-600 hover:bg-green-700"
+                size="lg"
               >
                 <TrendingUp className={cn("mr-2 h-4 w-4", isComputing && "animate-spin")} />
-                {isComputing ? "Computing..." : "Recompute Segments"}
+                {isComputing ? `Running Analysis... ${phase3Progress ? `${Math.round(phase3Progress)}%` : ''}` : "Run Complete Analysis"}
               </Button>
               <Button variant="outline" onClick={onSyncNow} disabled={isSyncing}>
                 <RefreshCw className={cn("mr-2 h-4 w-4", isSyncing && "animate-spin")} />
@@ -158,7 +159,7 @@ export function SyncActionButtons({
             </div>
             <div className="p-3 bg-green-50 dark:bg-green-950/30 rounded-lg border border-green-200 dark:border-green-900">
               <p className="text-sm text-green-800 dark:text-green-200">
-                ✅ Data synced! Click "Recompute Segments" to calculate insights.
+                ✅ Data synced! Run complete analysis to calculate lifecycle stages, value tiers, and pyramid tiers.
               </p>
             </div>
             <details className="mt-4 pt-4 border-t">

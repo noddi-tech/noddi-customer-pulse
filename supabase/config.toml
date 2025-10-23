@@ -37,3 +37,7 @@ verify_jwt = false
 
 [functions.compute-value-tiers]
 verify_jwt = false
+
+# Unified orchestration function - v1.0.0
+[functions.orchestrate-analysis]
+verify_jwt = false

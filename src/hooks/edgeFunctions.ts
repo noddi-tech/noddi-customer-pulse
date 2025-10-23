@@ -30,10 +30,26 @@ export function useComputeSegments() {
 
   return useMutation({
     mutationFn: async ({ 
-      onProgress 
+      onProgress,
+      useOrchestration = true
     }: { 
-      onProgress?: (progress: number, processed: number, total: number) => void 
+      onProgress?: (progress: number, processed: number, total: number) => void;
+      useOrchestration?: boolean;
     } = {}) => {
+      // Use the unified orchestration function by default for simplicity
+      if (useOrchestration) {
+        console.log('[FRONTEND] 🚀 Using orchestration function for complete analysis...');
+        const { data, error } = await supabase.functions.invoke("orchestrate-analysis");
+        
+        if (error) throw error;
+        if (!data.success) {
+          throw new Error(data.error || "Analysis pipeline failed");
+        }
+        
+        return data;
+      }
+      
+      // Legacy batch processing (kept for backwards compatibility / debugging)
       let offset = 0;
       const batchSize = 100;
       let totalProcessed = 0;
@@ -165,7 +181,18 @@ export function useComputeSegments() {
       throw new Error(`Exceeded maximum batch count (${MAX_BATCHES}). Last offset: ${offset}, total processed: ${totalProcessed}/${totalCustomers}. This indicates a batching loop issue in the edge function.`);
     },
     onSuccess: (data) => {
-      toast.success(`Computed segments for ${data.users} customers`);
+      // Check if using orchestration or legacy batch processing
+      if (data?.steps) {
+        // Orchestration response
+        const successSteps = data.steps.filter((s: any) => s.success).length;
+        toast.success(
+          `Analysis complete! Successfully ran ${successSteps}/3 steps in ${data.totalDuration}s`
+        );
+      } else {
+        // Legacy response
+        toast.success(`Computed segments for ${data.users} customers`);
+      }
+      
       queryClient.invalidateQueries({ queryKey: ["customers"] });
       queryClient.invalidateQueries({ queryKey: ["segment-counts"] });
       queryClient.invalidateQueries({ queryKey: ["customer"] });
