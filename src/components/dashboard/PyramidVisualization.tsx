@@ -2,8 +2,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { usePyramidTierCounts, useDormantCounts } from "@/hooks/pyramidSegmentation";
-import { TrendingUp, Users, Award, Target, Sparkles, Download, HelpCircle } from "lucide-react";
+import { TrendingUp, Users, Award, Target, Sparkles, Download, HelpCircle, Info } from "lucide-react";
 import { toast } from "sonner";
 import { exportPyramidAnalysis } from "@/utils/pyramidExport";
 
@@ -36,6 +37,44 @@ export function PyramidVisualization() {
   }
 
   const totalTiered = Object.values(tierCounts).reduce((sum, count) => sum + count, 0);
+
+  // Check if pyramid tiers have been calculated
+  if (totalTiered === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Users className="h-5 w-5" />
+            Customer Value Pyramid
+            <Badge variant="outline" className="text-xs">Setup Required</Badge>
+          </CardTitle>
+          <CardDescription>4-tier engagement model</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertTitle>Pyramid Segmentation Not Yet Calculated</AlertTitle>
+            <AlertDescription className="space-y-3">
+              <p>To view pyramid tiers, complete these steps:</p>
+              <ol className="list-decimal list-inside space-y-1 ml-2 text-sm">
+                <li>Go to <strong>Settings → Sync</strong> tab</li>
+                <li>Click <strong>"Compute Segments"</strong> to analyze all customers</li>
+                <li>Then click <strong>"Test Pyramid Calculation"</strong> to assign tiers</li>
+              </ol>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => window.location.href = '/settings?tab=sync'}
+                className="mt-2"
+              >
+                Go to Settings
+              </Button>
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    );
+  }
   const totalDormant = dormantCounts 
     ? dormantCounts.salvageable + dormantCounts.transient 
     : 0;
