@@ -117,12 +117,14 @@ export type Database = {
         Row: {
           computed_at: string | null
           discount_share_24m: number | null
+          fleet_size: number | null
           frequency_12m: number | null
           frequency_24m: number | null
           frequency_36m: number | null
           frequency_48m: number | null
           frequency_lifetime: number | null
           fully_paid_rate: number | null
+          largest_tire_order: number | null
           last_booking_at: string | null
           last_dekkskift_at: string | null
           margin_12m: number | null
@@ -138,20 +140,27 @@ export type Database = {
           revenue_lifetime: number | null
           seasonal_due_at: string | null
           service_counts: Json | null
+          service_revenue_24m: number | null
+          service_revenue_lifetime: number | null
           service_tags_all: Json | null
           storage_active: boolean | null
+          tire_order_count_24m: number | null
+          tire_revenue_24m: number | null
+          tire_revenue_lifetime: number | null
           user_group_id: number
           user_id: number | null
         }
         Insert: {
           computed_at?: string | null
           discount_share_24m?: number | null
+          fleet_size?: number | null
           frequency_12m?: number | null
           frequency_24m?: number | null
           frequency_36m?: number | null
           frequency_48m?: number | null
           frequency_lifetime?: number | null
           fully_paid_rate?: number | null
+          largest_tire_order?: number | null
           last_booking_at?: string | null
           last_dekkskift_at?: string | null
           margin_12m?: number | null
@@ -167,20 +176,27 @@ export type Database = {
           revenue_lifetime?: number | null
           seasonal_due_at?: string | null
           service_counts?: Json | null
+          service_revenue_24m?: number | null
+          service_revenue_lifetime?: number | null
           service_tags_all?: Json | null
           storage_active?: boolean | null
+          tire_order_count_24m?: number | null
+          tire_revenue_24m?: number | null
+          tire_revenue_lifetime?: number | null
           user_group_id: number
           user_id?: number | null
         }
         Update: {
           computed_at?: string | null
           discount_share_24m?: number | null
+          fleet_size?: number | null
           frequency_12m?: number | null
           frequency_24m?: number | null
           frequency_36m?: number | null
           frequency_48m?: number | null
           frequency_lifetime?: number | null
           fully_paid_rate?: number | null
+          largest_tire_order?: number | null
           last_booking_at?: string | null
           last_dekkskift_at?: string | null
           margin_12m?: number | null
@@ -196,8 +212,13 @@ export type Database = {
           revenue_lifetime?: number | null
           seasonal_due_at?: string | null
           service_counts?: Json | null
+          service_revenue_24m?: number | null
+          service_revenue_lifetime?: number | null
           service_tags_all?: Json | null
           storage_active?: boolean | null
+          tire_order_count_24m?: number | null
+          tire_revenue_24m?: number | null
+          tire_revenue_lifetime?: number | null
           user_group_id?: number
           user_id?: number | null
         }
@@ -280,8 +301,16 @@ export type Database = {
       }
       segments: {
         Row: {
+          composite_score: number | null
+          customer_segment: string | null
+          dormant_segment: string | null
+          fleet_size: number | null
+          high_value_tire_purchaser: boolean | null
           lifecycle: string | null
+          next_tier_requirements: Json | null
           previous_lifecycle: string | null
+          pyramid_tier: number | null
+          pyramid_tier_name: string | null
           tags: Json | null
           updated_at: string | null
           user_group_id: number
@@ -289,8 +318,16 @@ export type Database = {
           value_tier: string | null
         }
         Insert: {
+          composite_score?: number | null
+          customer_segment?: string | null
+          dormant_segment?: string | null
+          fleet_size?: number | null
+          high_value_tire_purchaser?: boolean | null
           lifecycle?: string | null
+          next_tier_requirements?: Json | null
           previous_lifecycle?: string | null
+          pyramid_tier?: number | null
+          pyramid_tier_name?: string | null
           tags?: Json | null
           updated_at?: string | null
           user_group_id: number
@@ -298,8 +335,16 @@ export type Database = {
           value_tier?: string | null
         }
         Update: {
+          composite_score?: number | null
+          customer_segment?: string | null
+          dormant_segment?: string | null
+          fleet_size?: number | null
+          high_value_tire_purchaser?: boolean | null
           lifecycle?: string | null
+          next_tier_requirements?: Json | null
           previous_lifecycle?: string | null
+          pyramid_tier?: number | null
+          pyramid_tier_name?: string | null
           tags?: Json | null
           updated_at?: string | null
           user_group_id?: number
@@ -446,6 +491,39 @@ export type Database = {
           status?: string | null
           sync_mode?: string | null
           total_records?: number | null
+        }
+        Relationships: []
+      }
+      tier_thresholds: {
+        Row: {
+          calculated_at: string | null
+          customer_segment: string
+          id: string
+          tier_distribution: Json | null
+          tier1_min_score: number | null
+          tier2_min_score: number | null
+          tier3_min_score: number | null
+          total_active_customers: number | null
+        }
+        Insert: {
+          calculated_at?: string | null
+          customer_segment: string
+          id?: string
+          tier_distribution?: Json | null
+          tier1_min_score?: number | null
+          tier2_min_score?: number | null
+          tier3_min_score?: number | null
+          total_active_customers?: number | null
+        }
+        Update: {
+          calculated_at?: string | null
+          customer_segment?: string
+          id?: string
+          tier_distribution?: Json | null
+          tier1_min_score?: number | null
+          tier2_min_score?: number | null
+          tier3_min_score?: number | null
+          total_active_customers?: number | null
         }
         Relationships: []
       }
