@@ -30,6 +30,9 @@ import { UnifiedSyncDashboard } from "@/components/settings/UnifiedSyncDashboard
 import { PyramidTestPanel } from "@/components/settings/PyramidTestPanel";
 import { AnalysisPipelineCard } from "@/components/settings/AnalysisPipelineCard";
 import { AnalysisStatusCards } from "@/components/settings/AnalysisStatusCards";
+import { ConfirmationDialog } from "@/components/settings/ConfirmationDialog";
+import { GuidedTooltip, InfoBox } from "@/components/settings/GuidedTooltips";
+import { SuccessWithNextSteps } from "@/components/settings/SuccessWithNextSteps";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Info, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -53,6 +56,8 @@ export default function Settings() {
   
   const [confirmDeleteText, setConfirmDeleteText] = useState("");
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
+  const [isReExtractDialogOpen, setIsReExtractDialogOpen] = useState(false);
+  const [isRecomputeDialogOpen, setIsRecomputeDialogOpen] = useState(false);
   
   // Get active tab from URL params or default to "thresholds"
   const activeTab = searchParams.get("tab") || "thresholds";
@@ -211,9 +216,14 @@ export default function Settings() {
     }
   };
 
-  const handleReExtractOrderLines = () => {
-    resetOrderLinesMutation.mutate();
-  };
+            const handleReExtractOrderLines = () => {
+              setIsReExtractDialogOpen(true);
+            };
+
+            const confirmReExtractOrderLines = () => {
+              setIsReExtractDialogOpen(false);
+              resetOrderLinesMutation.mutate();
+            };
 
   return (
     <div className="space-y-6">
@@ -505,21 +515,24 @@ export default function Settings() {
             };
 
             const handleComputeSegments = async () => {
+              // Show confirmation dialog first
+              setIsRecomputeDialogOpen(true);
+            };
+
+            const confirmComputeSegments = async () => {
+              setIsRecomputeDialogOpen(false);
               setIsComputingSegments(true);
               const startTime = Date.now();
               
-              // Phase 1: Show "Fetching customers" message
-              const fetchToastId = toast.info('Fetching all customers from database...', {
-                id: 'compute-fetch',
-                duration: Infinity
+              toast.info('Starting complete analysis pipeline...', {
+                id: 'compute-start',
+                duration: 2000
               });
               
               try {
                 const result = await computeMutation.mutateAsync({
                   onProgress: (progress, processed, total) => {
-                    // Phase 2: Dismiss fetch toast and show processing progress
-                    toast.dismiss('compute-fetch');
-                    toast.info(`Processing: ${processed.toLocaleString()}/${total.toLocaleString()} customers (${progress}%)`, {
+                    toast.info(`Analyzing: ${processed.toLocaleString()}/${total.toLocaleString()} customers (${progress}%)`, {
                       id: 'compute-progress',
                       duration: 1000
                     });
@@ -527,12 +540,23 @@ export default function Settings() {
                 });
                 const duration = ((Date.now() - startTime) / 1000).toFixed(1);
                 setLastComputeTime(new Date());
-                toast.dismiss('compute-fetch');
+                toast.dismiss('compute-start');
                 toast.dismiss('compute-progress');
-                toast.success(`✓ Processed ${(result.users || 0).toLocaleString()} customers in ${duration}s`);
+                
+                // Show success message with next steps
+                if (result?.steps) {
+                  const successCount = result.steps.filter((s: any) => s.success).length;
+                  toast.success(
+                    `✓ Analysis complete! Successfully ran ${successCount}/3 steps in ${duration}s`,
+                    { duration: 5000 }
+                  );
+                } else {
+                  toast.success(`✓ Processed ${(result.users || 0).toLocaleString()} customers in ${duration}s`);
+                }
               } catch (error: any) {
-                toast.dismiss('compute-fetch');
-                toast.error(`Computation failed: ${error.message}`);
+                toast.dismiss('compute-start');
+                toast.dismiss('compute-progress');
+                toast.error(`Analysis failed: ${error.message}`, { duration: 10000 });
               } finally {
                 setIsComputingSegments(false);
               }
@@ -540,6 +564,39 @@ export default function Settings() {
 
             return (
               <>
+                {/* Confirmation Dialogs */}
+                <ConfirmationDialog
+                  open={isRecomputeDialogOpen}
+                  onOpenChange={setIsRecomputeDialogOpen}
+                  title="Run Complete Analysis?"
+                  description="This will recalculate lifecycle stages, value tiers, and pyramid positioning for all customers."
+                  variant="default"
+                  details={[
+                    "Compute lifecycle stages (Active, At-risk, Churned, etc.)",
+                    "Calculate value tiers (High, Mid, Low)",
+                    "Assign pyramid tier positioning (Champion, Loyalist, Engaged, Prospect)",
+                    "Takes approximately 1-2 minutes for 10,000+ customers"
+                  ]}
+                  actionLabel="Run Analysis"
+                  onConfirm={confirmComputeSegments}
+                />
+
+                <ConfirmationDialog
+                  open={isReExtractDialogOpen}
+                  onOpenChange={setIsReExtractDialogOpen}
+                  title="Re-extract Order Lines?"
+                  description="This will clear all existing order lines and re-extract them from bookings."
+                  variant="warning"
+                  details={[
+                    "Delete all existing order line records",
+                    "Re-extract line items from all bookings",
+                    "This process takes several minutes",
+                    "Order line extraction runs automatically - only use this if you're experiencing data issues"
+                  ]}
+                  actionLabel="Re-extract"
+                  onConfirm={confirmReExtractOrderLines}
+                />
+
                 {/* Error alerts for any failed syncs */}
                 {syncStatus?.filter(s => s.error_message).map(status => (
                   <SyncErrorAlert
@@ -578,17 +635,59 @@ export default function Settings() {
             />
           )}
 
-          {/* Analysis Pipeline Card */}
+          {/* Analysis Pipeline Card with guidance */}
           {isSyncComplete && (
-            <AnalysisPipelineCard
-              syncComplete={isSyncComplete}
-              customersInDb={dbCounts?.customers_total || 0}
-              segmentsComputed={(segmentCounts as any)?.lifecycle?.Active + (segmentCounts as any)?.lifecycle?.['At-risk'] + (segmentCounts as any)?.lifecycle?.Churned + (segmentCounts as any)?.lifecycle?.New + (segmentCounts as any)?.lifecycle?.Winback || 0}
-              pyramidTiersAssigned={0} // TODO: Get from DB
-              isComputing={isComputingSegments}
-              onRunAnalysis={handleComputeSegments}
-              onViewDashboard={() => window.location.href = "/"}
-              computingProgress={0}
+            <>
+              <InfoBox
+                title="🎯 Customer Analysis Workflow"
+                description="Run the complete analysis to calculate insights for all customers"
+                variant="info"
+                tips={[
+                  "Analysis automatically computes lifecycle stages, value tiers, and pyramid positioning",
+                  "Takes 1-2 minutes for 10,000+ customers",
+                  "Safe to re-run anytime - existing pyramid tiers are preserved",
+                  "View results on the Dashboard after completion"
+                ]}
+              />
+              
+              <AnalysisPipelineCard
+                syncComplete={isSyncComplete}
+                customersInDb={dbCounts?.customers_total || 0}
+                segmentsComputed={(segmentCounts as any)?.lifecycle?.Active + (segmentCounts as any)?.lifecycle?.['At-risk'] + (segmentCounts as any)?.lifecycle?.Churned + (segmentCounts as any)?.lifecycle?.New + (segmentCounts as any)?.lifecycle?.Winback || 0}
+                pyramidTiersAssigned={0} // TODO: Get from DB
+                isComputing={isComputingSegments}
+                onRunAnalysis={handleComputeSegments}
+                onViewDashboard={() => window.location.href = "/"}
+                computingProgress={0}
+              />
+            </>
+          )}
+
+          {/* Success message after analysis completes */}
+          {lastComputeTime && (
+            <SuccessWithNextSteps
+              title="Analysis Complete!"
+              description="Customer insights have been calculated successfully"
+              nextSteps={[
+                {
+                  title: "View Customer Dashboard",
+                  description: "Explore lifecycle stages, value tiers, and pyramid positioning",
+                  action: () => window.location.href = "/",
+                  actionLabel: "Open Dashboard",
+                  recommended: true
+                },
+                {
+                  title: "Explore Customer Segments",
+                  description: "Dive deep into specific customer groups and their characteristics",
+                  action: () => window.location.href = "/segments",
+                  actionLabel: "View Segments"
+                }
+              ]}
+              stats={{
+                "Customers": dbCounts?.customers_total || 0,
+                "Analyzed": (segmentCounts as any)?.lifecycle?.Active + (segmentCounts as any)?.lifecycle?.['At-risk'] + (segmentCounts as any)?.lifecycle?.Churned + (segmentCounts as any)?.lifecycle?.New + (segmentCounts as any)?.lifecycle?.Winback || 0,
+                "Duration": lastComputeTime ? `${formatDistanceToNow(lastComputeTime, { addSuffix: true })}` : "N/A"
+              }}
             />
           )}
 
