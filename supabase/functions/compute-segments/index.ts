@@ -133,7 +133,7 @@ serve(async (req) => {
       .from("bookings")
       .select("id,user_id,user_group_id,started_at,completed_at,date,status_label,is_fully_paid,is_partially_unable_to_complete,is_fully_unable_to_complete,booking_items")
       .in("user_group_id", batchUserGroupIds)
-      .limit(110000);
+      .limit(250000);
     
     // Group bookings by user_group_id
     const bookingsByUserGroup = new Map<number, any[]>();
@@ -149,7 +149,7 @@ serve(async (req) => {
       .from("order_lines")
       .select("booking_id,description,amount_gross,amount_vat,currency,category,is_discount,created_at")
       .in("booking_id", allBookingIds)
-      .limit(150000);
+      .limit(400000);
     
     // Group order lines by booking_id
     const linesByBooking = new Map<number, any[]>();

@@ -98,14 +98,16 @@ export function useComputeSegments() {
             // Update counters
             totalProcessed += batchData.batch.processed;
             totalCustomers = batchData.batch.total;
-            offset = batchData.batch.nextOffset;
             hasMore = batchData.batch.hasMore;
             
-            // SAFETY: Stop if offset has reached or exceeded total (handles all customers, not just those with bookings)
-            if (offset >= totalCustomers) {
-              console.log('[FRONTEND] ⚠️ Offset >= total customers, stopping');
+            // Only override if backend is clearly wrong
+            if (batchData.batch.nextOffset > totalCustomers && hasMore) {
+              console.log('[FRONTEND] ⚠️ Backend error detected, correcting hasMore');
               hasMore = false;
             }
+            
+            // Update offset for next iteration
+            offset = batchData.batch.nextOffset;
             
             // Calculate progress (0-70% for segment batches)
             const segmentProgress = (totalProcessed / totalCustomers) * 70;

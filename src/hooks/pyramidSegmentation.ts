@@ -31,7 +31,8 @@ export function usePyramidTierDistribution() {
       const { data, error } = await supabase
         .from("segments")
         .select("customer_segment, pyramid_tier, pyramid_tier_name, dormant_segment")
-        .not("customer_segment", "is", null);
+        .not("customer_segment", "is", null)
+        .limit(50000);
 
       if (error) throw error;
 
@@ -79,7 +80,8 @@ export function usePyramidTierCounts() {
       const { data, error } = await supabase
         .from("segments")
         .select("pyramid_tier_name")
-        .not("pyramid_tier_name", "is", null);
+        .not("pyramid_tier_name", "is", null)
+        .limit(50000);
 
       if (error) throw error;
 
@@ -110,7 +112,8 @@ export function useDormantCounts() {
       const { data, error } = await supabase
         .from("segments")
         .select("dormant_segment")
-        .not("dormant_segment", "is", null);
+        .not("dormant_segment", "is", null)
+        .limit(50000);
 
       if (error) throw error;
 
@@ -139,7 +142,8 @@ export function useCustomerSegmentCounts() {
       const { data, error } = await supabase
         .from("segments")
         .select("customer_segment")
-        .not("customer_segment", "is", null);
+        .not("customer_segment", "is", null)
+        .limit(50000);
 
       if (error) throw error;
 
