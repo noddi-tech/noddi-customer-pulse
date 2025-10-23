@@ -102,6 +102,24 @@ serve(async (req) => {
     const batchUserGroupIds = uniqueUserGroupIds.slice(batchOffset, batchOffset + batchSize);
     console.log(`[BATCH] Processing ${batchUserGroupIds.length} customers (${batchOffset} to ${batchOffset + batchUserGroupIds.length})`);
     
+    // Fetch existing pyramid tier data for this batch to preserve it
+    const { data: existingSegments } = await sb
+      .from("segments")
+      .select("user_group_id, pyramid_tier, pyramid_tier_name, composite_score, dormant_segment, next_tier_requirements")
+      .in("user_group_id", batchUserGroupIds);
+    
+    const pyramidDataMap = new Map();
+    (existingSegments || []).forEach(seg => {
+      pyramidDataMap.set(seg.user_group_id, {
+        pyramid_tier: seg.pyramid_tier,
+        pyramid_tier_name: seg.pyramid_tier_name,
+        composite_score: seg.composite_score,
+        dormant_segment: seg.dormant_segment,
+        next_tier_requirements: seg.next_tier_requirements
+      });
+    });
+    console.log(`[BATCH] Preserved pyramid data for ${pyramidDataMap.size} customers`);
+    
     // Fetch user_groups data for customer segmentation
     const { data: userGroupsData } = await sb
       .from("user_groups")
@@ -535,11 +553,12 @@ serve(async (req) => {
           customer_segment: customerSegment,
           high_value_tire_purchaser: highValueTirePurchaser,
           fleet_size: fleetSize,
-          pyramid_tier: null, // Will be calculated by compute_pyramid_tiers_v3
-          pyramid_tier_name: null,
-          composite_score: null,
-          dormant_segment: null,
-          next_tier_requirements: null
+          // Preserve existing pyramid tier data (calculated by compute_pyramid_tiers_v3)
+          pyramid_tier: pyramidDataMap.get(userGroupId)?.pyramid_tier ?? null,
+          pyramid_tier_name: pyramidDataMap.get(userGroupId)?.pyramid_tier_name ?? null,
+          composite_score: pyramidDataMap.get(userGroupId)?.composite_score ?? null,
+          dormant_segment: pyramidDataMap.get(userGroupId)?.dormant_segment ?? null,
+          next_tier_requirements: pyramidDataMap.get(userGroupId)?.next_tier_requirements ?? null
         });
       }
 
