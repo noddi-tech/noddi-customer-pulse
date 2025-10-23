@@ -11,11 +11,20 @@ interface PhaseStatus {
   estimated_total?: number;
 }
 
+// Default status for when phase hasn't started yet
+const defaultStatus: PhaseStatus = {
+  resource: "",
+  status: "pending",
+  total_records: 0,
+  last_run_at: null,
+  estimated_total: 0
+};
+
 interface ConsolidatedSyncStatusCardProps {
-  customerStatus: PhaseStatus;
-  memberStatus: PhaseStatus;
-  bookingStatus: PhaseStatus;
-  orderLineStatus: PhaseStatus;
+  customerStatus: PhaseStatus | undefined;
+  memberStatus: PhaseStatus | undefined;
+  bookingStatus: PhaseStatus | undefined;
+  orderLineStatus: PhaseStatus | undefined;
   userGroupsTotal: number;
   userGroupsB2B: number;
   userGroupsB2C: number;
@@ -41,43 +50,49 @@ export function ConsolidatedSyncStatusCard({
   isAutoSyncing,
 }: ConsolidatedSyncStatusCardProps) {
   
+  // Apply defaults for undefined status objects
+  const safeCustomerStatus = customerStatus || defaultStatus;
+  const safeMemberStatus = memberStatus || defaultStatus;
+  const safeBookingStatus = bookingStatus || defaultStatus;
+  const safeOrderLineStatus = orderLineStatus || defaultStatus;
+  
   const phases = [
     { 
       id: 0, 
       label: "Customers", 
-      status: customerStatus,
+      status: safeCustomerStatus,
       icon: Users,
-      metric: `${userGroupsTotal.toLocaleString()} synced`,
-      detail: `${userGroupsB2B} B2B, ${userGroupsB2C.toLocaleString()} B2C`
+      metric: `${(userGroupsTotal || 0).toLocaleString()} synced`,
+      detail: `${userGroupsB2B || 0} B2B, ${(userGroupsB2C || 0).toLocaleString()} B2C`
     },
     { 
       id: 1, 
       label: "Members", 
-      status: memberStatus,
+      status: safeMemberStatus,
       icon: Users,
-      metric: `${memberStatus.total_records.toLocaleString()} synced`,
+      metric: `${(safeMemberStatus.total_records || 0).toLocaleString()} synced`,
       detail: null
     },
     { 
       id: 2, 
       label: "Bookings", 
-      status: bookingStatus,
+      status: safeBookingStatus,
       icon: Calendar,
-      metric: `${bookingsTotal.toLocaleString()} synced`,
-      detail: `${bookingsWithUser.toLocaleString()} mapped to users`
+      metric: `${(bookingsTotal || 0).toLocaleString()} synced`,
+      detail: `${(bookingsWithUser || 0).toLocaleString()} mapped to users`
     },
     { 
       id: 3, 
       label: "Order Lines", 
-      status: orderLineStatus,
+      status: safeOrderLineStatus,
       icon: ShoppingCart,
-      metric: orderLineStatus.status === "completed" 
-        ? `${orderLinesTotal.toLocaleString()} extracted`
-        : `${orderLinesTotal.toLocaleString()} / ${expectedOrderLines.toLocaleString()}`,
-      detail: orderLineStatus.status === "running" 
-        ? `Processing ${expectedOrderLines.toLocaleString()} bookings...`
-        : orderLineStatus.status === "completed"
-        ? `From ${expectedOrderLines.toLocaleString()} bookings`
+      metric: safeOrderLineStatus.status === "completed" 
+        ? `${(orderLinesTotal || 0).toLocaleString()} extracted`
+        : `${(orderLinesTotal || 0).toLocaleString()} / ${(expectedOrderLines || 0).toLocaleString()}`,
+      detail: safeOrderLineStatus.status === "running" 
+        ? `Processing ${(expectedOrderLines || 0).toLocaleString()} bookings...`
+        : safeOrderLineStatus.status === "completed"
+        ? `From ${(expectedOrderLines || 0).toLocaleString()} bookings`
         : null
     },
   ];
