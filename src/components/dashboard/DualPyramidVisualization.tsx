@@ -71,9 +71,6 @@ export function DualPyramidVisualization({ selectedTier, selectedCustomerType, o
   const renderPyramid = (pyramidData: { Champion: number; Loyalist: number; Engaged: number; Prospect: number; customer_type: 'B2C' | 'B2B'; total: number; }, title: string, icon: any, customerType: 'B2C' | 'B2B') => {
     const Icon = icon;
     
-    // Sort tiers by count (descending) to build proper visual pyramid
-    const sortedTiers = [...tiers].sort((a, b) => pyramidData[b.name] - pyramidData[a.name]);
-    
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-2">
@@ -83,7 +80,7 @@ export function DualPyramidVisualization({ selectedTier, selectedCustomerType, o
         </div>
 
         <div className="flex flex-col items-center space-y-1 py-4">
-          {sortedTiers.map((tier) => {
+          {tiers.map((tier) => {
             const TierIcon = tier.icon;
             const count = pyramidData[tier.name];
             const percentage = pyramidData.total > 0 
