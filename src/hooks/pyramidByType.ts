@@ -20,7 +20,8 @@ export function usePyramidByCustomerType() {
           pyramid_tier_name,
           user_groups!inner(type)
         `)
-        .not("pyramid_tier_name", "is", null);
+        .not("pyramid_tier_name", "is", null)
+        .limit(10000);
 
       if (error) throw error;
 
