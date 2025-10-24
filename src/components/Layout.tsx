@@ -8,7 +8,6 @@ import { formatDistanceToNow } from "date-fns";
 
 const navItems = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
-  { path: "/segments", label: "Segments", icon: Target },
   { path: "/customers", label: "Customers", icon: Users },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
