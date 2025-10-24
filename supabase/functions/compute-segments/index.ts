@@ -476,7 +476,7 @@ serve(async (req) => {
         // NEW: Detect Winback customers first (highest priority for re-engagement)
         // Winback = customers who were churned (270+ days gap between bookings) but recently returned
         const isWinback = (() => {
-          if (frequencyLifetime < 2) return false; // Need 2+ bookings to winback
+          if (metricsLifetime.freq < 2) return false; // Need 2+ bookings to winback
           if (daysSinceLastBooking > (th.winback_days ?? 60)) return false; // Must have booked recently
           
           // Check if previous booking gap was ≥270 days (churned threshold)
