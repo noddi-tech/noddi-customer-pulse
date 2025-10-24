@@ -77,7 +77,7 @@ export default function Dashboard() {
       label: "Winback", 
       count: counts?.Winback || 0, 
       variant: "default" as const,
-      tooltip: "Previously churned customers who have returned"
+      tooltip: "🎉 Previously churned customers who returned! High priority for retention campaigns - they've given you a second chance"
     },
   ];
 

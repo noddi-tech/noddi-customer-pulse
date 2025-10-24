@@ -30,7 +30,7 @@ export function LifecycleExplainer() {
           </div>
           <div>
             <span className="font-semibold text-foreground">Winback:</span>
-            <span className="text-muted-foreground"> Previously churned, now returned</span>
+            <span className="text-muted-foreground"> 🎉 Previously churned (9+ months inactive), but recently returned (≤60 days). Critical to nurture - they gave you a second chance!</span>
           </div>
         </div>
       </CardContent>

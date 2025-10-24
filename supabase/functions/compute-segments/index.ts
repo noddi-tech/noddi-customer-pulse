@@ -470,12 +470,47 @@ serve(async (req) => {
         const daysSinceFirstBooking = firstBookingAt 
           ? (now.getTime() - firstBookingAt.getTime()) / 86400000 
           : Infinity;
-
+        
         let lifecycle = "Churned";
-
+        
+        // NEW: Detect Winback customers first (highest priority for re-engagement)
+        // Winback = customers who were churned (270+ days gap between bookings) but recently returned
+        const isWinback = (() => {
+          if (frequencyLifetime < 2) return false; // Need 2+ bookings to winback
+          if (daysSinceLastBooking > (th.winback_days ?? 60)) return false; // Must have booked recently
+          
+          // Check if previous booking gap was ≥270 days (churned threshold)
+          const sortedBookings = bookings
+            .map(b => {
+              const t = b.started_at 
+                ? new Date(b.started_at) 
+                : b.date 
+                  ? new Date(b.date) 
+                  : b.completed_at 
+                    ? new Date(b.completed_at) 
+                    : null;
+              return t;
+            })
+            .filter((t): t is Date => t !== null)
+            .sort((a, b) => b.getTime() - a.getTime());
+          
+          // Need at least 2 bookings to calculate gap
+          if (sortedBookings.length < 2) return false;
+          
+          // Calculate gap between most recent and second-most recent booking
+          const mostRecent = sortedBookings[0];
+          const secondMostRecent = sortedBookings[1];
+          const gapDays = (mostRecent.getTime() - secondMostRecent.getTime()) / 86400000;
+          
+          // If gap was ≥270 days (churned threshold), this is a winback
+          return gapDays >= 270;
+        })();
+        
         // Lifecycle based on booking activity (all customers now have bookings)
         // Thresholds: Active ≤213 days (7 months), At-risk 213-269 days, Churned ≥270 days (9 months)
-        if (daysSinceFirstBooking <= (th.new_days ?? 90)) {
+        if (isWinback) {
+          lifecycle = "Winback";  // Previously churned, now returned 🎉
+        } else if (daysSinceFirstBooking <= (th.new_days ?? 90)) {
           lifecycle = "New";
         } else if (storageActive) {
           lifecycle = "Active";  // Storage customers = recurring relationship
