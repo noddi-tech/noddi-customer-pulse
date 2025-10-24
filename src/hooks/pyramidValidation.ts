@@ -46,13 +46,12 @@ export function usePyramidValidation() {
       });
 
       // Check 2: Verify customer segments are assigned
-      const { data: segmentData } = await supabase
+      const { count: customersWithSegment } = await supabase
         .from("segments")
-        .select("customer_segment")
+        .select("*", { count: "exact", head: true })
         .not("customer_segment", "is", null);
 
-      const customersWithSegment = segmentData?.length || 0;
-      const segmentCoverage = totalCustomers ? customersWithSegment / totalCustomers * 100 : 0;
+      const segmentCoverage = totalCustomers ? (customersWithSegment || 0) / totalCustomers * 100 : 0;
 
       checks.push({
         check: "Customer Segment Assignment",
@@ -62,13 +61,17 @@ export function usePyramidValidation() {
       });
 
       // Check 3: Verify pyramid tiers are distributed correctly
-      const { data: pyramidData } = await supabase
+      const { count: tieredCustomers } = await supabase
         .from("segments")
-        .select("pyramid_tier, pyramid_tier_name");
+        .select("*", { count: "exact", head: true })
+        .not("pyramid_tier", "is", null);
 
-      const tieredCustomers = pyramidData?.filter(s => s.pyramid_tier !== null).length || 0;
-      const dormantCustomers = pyramidData?.filter(s => s.pyramid_tier === null).length || 0;
-      const pyramidCoverage = totalCustomers ? tieredCustomers / totalCustomers * 100 : 0;
+      const { count: dormantCustomers } = await supabase
+        .from("segments")
+        .select("*", { count: "exact", head: true })
+        .is("pyramid_tier", null);
+
+      const pyramidCoverage = totalCustomers ? (tieredCustomers || 0) / totalCustomers * 100 : 0;
 
       checks.push({
         check: "Pyramid Tier Distribution",
