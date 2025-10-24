@@ -138,10 +138,16 @@ export function DualPyramidVisualization({ selectedTier, selectedCustomerType, o
                         )}
                         
                         {layoutMode === 'compact' && (
-                          <div className="flex items-center gap-1">
-                            <span className="text-sm font-bold">{Math.round(percentage)}%</span>
-                            <span className="text-[10px] opacity-90">({count})</span>
-                          </div>
+                          <>
+                            <TierIcon className="h-3 w-3" />
+                            <span className="text-[9px] leading-none">{tier.name}</span>
+                            <span className="text-sm font-bold leading-tight">
+                              {Math.round(percentage)}%
+                            </span>
+                            <span className="text-[9px] opacity-90 leading-none">
+                              {count.toLocaleString()}
+                            </span>
+                          </>
                         )}
                       </div>
                     </div>
