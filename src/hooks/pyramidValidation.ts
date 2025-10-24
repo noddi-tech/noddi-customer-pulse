@@ -27,8 +27,9 @@ export function usePyramidValidation() {
       const checks: ValidationResult[] = [];
 
       // Check 1: Verify all customers have features calculated
+      // Count only customers with bookings (segments table = active customers)
       const { count: totalCustomers } = await supabase
-        .from("user_groups")
+        .from("segments")
         .select("*", { count: "exact", head: true });
 
       const { count: customersWithFeatures } = await supabase
@@ -72,7 +73,7 @@ export function usePyramidValidation() {
       checks.push({
         check: "Pyramid Tier Distribution",
         status: pyramidCoverage >= 50 ? "pass" : pyramidCoverage >= 30 ? "warning" : "fail",
-        message: `${tieredCustomers} tiered, ${dormantCustomers} dormant (${pyramidCoverage.toFixed(1)}% tiered)`,
+        message: `${tieredCustomers} tiered, ${dormantCustomers} dormant (${pyramidCoverage.toFixed(1)}% of ${totalCustomers} active customers)`,
         details: { tieredCustomers, dormantCustomers, pyramidCoverage }
       });
 
@@ -165,7 +166,7 @@ export function usePyramidValidation() {
         },
       };
     },
-    staleTime: 2 * 60 * 1000, // 2 minutes
+    staleTime: 30 * 1000, // 30 seconds (faster cache refresh)
   });
 }
 
