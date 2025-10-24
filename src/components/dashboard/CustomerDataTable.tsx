@@ -77,23 +77,23 @@ export function CustomerDataTable({ defaultFilters }: CustomerDataTableProps) {
           </div>
         </div>
 
-        <Select value={customerType} onValueChange={setCustomerType}>
+        <Select value={customerType || undefined} onValueChange={(val) => setCustomerType(val === "all" ? "" : val)}>
           <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Customer Type" />
+            <SelectValue placeholder="All Customer Types" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Types</SelectItem>
+            <SelectItem value="all">All Types</SelectItem>
             <SelectItem value="B2C">B2C</SelectItem>
             <SelectItem value="B2B">B2B</SelectItem>
           </SelectContent>
         </Select>
 
-        <Select value={lifecycle} onValueChange={setLifecycle}>
+        <Select value={lifecycle || undefined} onValueChange={(val) => setLifecycle(val === "all" ? "" : val)}>
           <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Lifecycle" />
+            <SelectValue placeholder="All Lifecycles" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Lifecycles</SelectItem>
+            <SelectItem value="all">All Lifecycles</SelectItem>
             <SelectItem value="New">New</SelectItem>
             <SelectItem value="Active">Active</SelectItem>
             <SelectItem value="At-risk">At-risk</SelectItem>
@@ -102,12 +102,12 @@ export function CustomerDataTable({ defaultFilters }: CustomerDataTableProps) {
           </SelectContent>
         </Select>
 
-        <Select value={valueTier} onValueChange={setValueTier}>
+        <Select value={valueTier || undefined} onValueChange={(val) => setValueTier(val === "all" ? "" : val)}>
           <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Value Tier" />
+            <SelectValue placeholder="All Value Tiers" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Value Tiers</SelectItem>
+            <SelectItem value="all">All Value Tiers</SelectItem>
             <SelectItem value="High">High</SelectItem>
             <SelectItem value="Mid">Mid</SelectItem>
             <SelectItem value="Low">Low</SelectItem>
