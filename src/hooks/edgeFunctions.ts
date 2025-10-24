@@ -2,6 +2,30 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
+export function useCronJobs() {
+  return useQuery({
+    queryKey: ["cron-jobs"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("get_cron_jobs");
+      if (error) throw error;
+      return data;
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+}
+
+export function useRecentCronRuns(limit = 5) {
+  return useQuery({
+    queryKey: ["recent-cron-runs", limit],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("get_recent_cron_runs", { limit_count: limit });
+      if (error) throw error;
+      return data;
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+}
+
 export function useSyncNow() {
   const queryClient = useQueryClient();
 

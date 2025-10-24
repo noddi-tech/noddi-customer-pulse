@@ -21,6 +21,7 @@ import { ConfirmationDialog } from "@/components/settings/ConfirmationDialog";
 import { ConsolidatedSyncStatusCard } from "@/components/settings/ConsolidatedSyncStatusCard";
 import { ConsolidatedAnalysisPipelineCard } from "@/components/settings/ConsolidatedAnalysisPipelineCard";
 import { SyncHistoryCard } from "@/components/settings/SyncHistoryCard";
+import { AutoSyncStatusCard } from "@/components/settings/AutoSyncStatusCard";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Info, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -597,7 +598,7 @@ export default function Settings() {
                   onConfirm={confirmReExtractOrderLines}
                 />
 
-                {/* Error alerts for any failed syncs */}
+                 {/* Error alerts for any failed syncs */}
                 {syncStatus?.filter(s => s.error_message).map(status => (
                   <SyncErrorAlert
                     key={status.resource}
@@ -606,6 +607,12 @@ export default function Settings() {
                     lastRunAt={status.last_run_at ? new Date(status.last_run_at) : null}
                   />
                 ))}
+
+          {/* Auto-Sync Management Card */}
+          <AutoSyncStatusCard 
+            onManualSync={() => syncMutation.mutate()}
+            isSyncing={syncMutation.isPending || isRunning}
+          />
 
           {/* Consolidated Sync Status - Single source of truth for sync progress */}
           <ConsolidatedSyncStatusCard
