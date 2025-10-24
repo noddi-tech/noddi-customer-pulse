@@ -89,7 +89,10 @@ export function DualPyramidVisualization({ selectedTier, selectedCustomerType, o
 
             // Calculate dynamic height: min 40px, max 128px based on percentage
             const height = 40 + (percentage * 0.88); // 0.88 = (128-40)/100
-            const layoutMode = height >= 50 ? 'standard' : 'compact';
+            // Layout based on tier width (not height!)
+            const layoutMode = tier.name === 'Champion' ? 'ultra-compact' 
+              : tier.name === 'Loyalist' ? 'compact' 
+              : 'standard';
             
             const isSelected = selectedTier === tier.name && selectedCustomerType === customerType;
             const isOtherSelected = selectedTier && !isSelected;
@@ -108,32 +111,30 @@ export function DualPyramidVisualization({ selectedTier, selectedCustomerType, o
                     >
                       <div 
                         className={`h-full ${tier.color} rounded shadow-md 
-                          flex flex-row items-center justify-center gap-2 text-white
-                          font-medium relative overflow-hidden px-3`}
+                          flex flex-row items-center justify-center gap-1.5 text-white
+                          font-medium relative overflow-hidden px-2`}
                       >
-                        {layoutMode === 'standard' && (
+                        {layoutMode === 'ultra-compact' && (
                           <>
-                            <TierIcon className="h-4 w-4" />
-                            <span className="text-xs font-medium">{tier.name}</span>
-                            <span className="text-lg font-bold">
-                              {Math.round(percentage)}%
-                            </span>
-                            <span className="text-xs opacity-90">
-                              ({count.toLocaleString()})
-                            </span>
+                            <TierIcon className="h-5 w-5" />
+                            <span className="text-xl font-bold">{Math.round(percentage)}%</span>
                           </>
                         )}
                         
                         {layoutMode === 'compact' && (
                           <>
-                            <TierIcon className="h-3 w-3" />
-                            <span className="text-[10px]">{tier.name}</span>
-                            <span className="text-sm font-bold">
-                              {Math.round(percentage)}%
-                            </span>
-                            <span className="text-[10px] opacity-90">
-                              ({count})
-                            </span>
+                            <TierIcon className="h-4 w-4" />
+                            <span className="text-lg font-bold">{Math.round(percentage)}%</span>
+                            <span className="text-xs opacity-90">({count.toLocaleString()})</span>
+                          </>
+                        )}
+                        
+                        {layoutMode === 'standard' && (
+                          <>
+                            <TierIcon className="h-4 w-4" />
+                            <span className="text-sm font-medium">{tier.name}</span>
+                            <span className="text-lg font-bold">{Math.round(percentage)}%</span>
+                            <span className="text-xs opacity-90">({count.toLocaleString()})</span>
                           </>
                         )}
                       </div>
