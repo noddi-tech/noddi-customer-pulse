@@ -89,7 +89,7 @@ export function DualPyramidVisualization({ selectedTier, selectedCustomerType, o
 
             // Calculate dynamic height: min 40px, max 128px based on percentage
             const height = 40 + (percentage * 0.88); // 0.88 = (128-40)/100
-            const layoutMode = height >= 70 ? 'tall' : height >= 50 ? 'medium' : 'compact';
+            const layoutMode = height >= 50 ? 'standard' : 'compact';
             
             const isSelected = selectedTier === tier.name && selectedCustomerType === customerType;
             const isOtherSelected = selectedTier && !isSelected;
@@ -108,31 +108,18 @@ export function DualPyramidVisualization({ selectedTier, selectedCustomerType, o
                     >
                       <div 
                         className={`h-full ${tier.color} rounded shadow-md 
-                          flex flex-col items-center justify-center text-white
-                          font-medium relative overflow-hidden ${layoutMode === 'compact' ? 'px-3' : 'px-2'}`}
+                          flex flex-row items-center justify-center gap-2 text-white
+                          font-medium relative overflow-hidden px-3`}
                       >
-                        {layoutMode === 'tall' && (
+                        {layoutMode === 'standard' && (
                           <>
-                            <TierIcon className="h-5 w-5 mb-1" />
-                            <span className="text-xs">{tier.name}</span>
+                            <TierIcon className="h-4 w-4" />
+                            <span className="text-xs font-medium">{tier.name}</span>
                             <span className="text-lg font-bold">
                               {Math.round(percentage)}%
                             </span>
                             <span className="text-xs opacity-90">
-                              {count.toLocaleString()}
-                            </span>
-                          </>
-                        )}
-                        
-                        {layoutMode === 'medium' && (
-                          <>
-                            <TierIcon className="h-4 w-4" />
-                            <span className="text-[10px] leading-tight">{tier.name}</span>
-                            <span className="text-base font-bold">
-                              {Math.round(percentage)}%
-                            </span>
-                            <span className="text-[10px] opacity-90">
-                              {count.toLocaleString()}
+                              ({count.toLocaleString()})
                             </span>
                           </>
                         )}
@@ -140,12 +127,12 @@ export function DualPyramidVisualization({ selectedTier, selectedCustomerType, o
                         {layoutMode === 'compact' && (
                           <>
                             <TierIcon className="h-3 w-3" />
-                            <span className="text-[9px] leading-none">{tier.name}</span>
-                            <span className="text-sm font-bold leading-tight">
+                            <span className="text-[10px]">{tier.name}</span>
+                            <span className="text-sm font-bold">
                               {Math.round(percentage)}%
                             </span>
-                            <span className="text-[9px] opacity-90 leading-none">
-                              {count.toLocaleString()}
+                            <span className="text-[10px] opacity-90">
+                              ({count})
                             </span>
                           </>
                         )}
