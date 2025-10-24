@@ -82,6 +82,7 @@ export function useCustomers(params?: {
   lifecycle?: string;
   value_tier?: string;
   customer_type?: string;
+  pyramid_tier?: string;
   search?: string;
 }) {
   return useQuery({
@@ -93,6 +94,7 @@ export function useCustomers(params?: {
           user_group_id,
           lifecycle,
           value_tier,
+          pyramid_tier_name,
           user_groups!inner(id, name, org_id),
           features!inner(
             last_booking_at,
@@ -125,6 +127,10 @@ export function useCustomers(params?: {
 
       if (params?.value_tier) {
         query = query.eq("value_tier", params.value_tier);
+      }
+
+      if (params?.pyramid_tier) {
+        query = query.eq("pyramid_tier_name", params.pyramid_tier);
       }
 
       if (params?.customer_type === 'B2C') {

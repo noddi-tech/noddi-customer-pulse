@@ -12,6 +12,12 @@ type TierConfig = {
   width: string;
 };
 
+type DualPyramidVisualizationProps = {
+  selectedTier?: string;
+  selectedCustomerType?: 'B2C' | 'B2B';
+  onTierClick?: (tierName: string, customerType: 'B2C' | 'B2B') => void;
+};
+
 const tiers: TierConfig[] = [
   {
     name: "Champion",
@@ -43,7 +49,7 @@ const tiers: TierConfig[] = [
   },
 ];
 
-export function DualPyramidVisualization() {
+export function DualPyramidVisualization({ selectedTier, selectedCustomerType, onTierClick }: DualPyramidVisualizationProps) {
   const { data, isLoading } = usePyramidByCustomerType();
 
   if (isLoading || !data) {
@@ -62,8 +68,11 @@ export function DualPyramidVisualization() {
 
   const { b2c, b2b } = data;
 
-  const renderPyramid = (pyramidData: { Champion: number; Loyalist: number; Engaged: number; Prospect: number; customer_type: 'B2C' | 'B2B'; total: number; }, title: string, icon: any) => {
+  const renderPyramid = (pyramidData: { Champion: number; Loyalist: number; Engaged: number; Prospect: number; customer_type: 'B2C' | 'B2B'; total: number; }, title: string, icon: any, customerType: 'B2C' | 'B2B') => {
     const Icon = icon;
+    
+    // Sort tiers by count (descending) to build proper visual pyramid
+    const sortedTiers = [...tiers].sort((a, b) => pyramidData[b.name] - pyramidData[a.name]);
     
     return (
       <div className="space-y-4">
@@ -73,37 +82,55 @@ export function DualPyramidVisualization() {
           <Badge variant="outline">{pyramidData.total.toLocaleString()} customers</Badge>
         </div>
 
-        <div className="space-y-3">
-          {tiers.map((tier) => {
+        <div className="flex flex-col items-center space-y-1 py-4">
+          {sortedTiers.map((tier) => {
             const TierIcon = tier.icon;
             const count = pyramidData[tier.name];
             const percentage = pyramidData.total > 0 
-              ? Math.round((count / pyramidData.total) * 100) 
+              ? (count / pyramidData.total) * 100 
               : 0;
 
+            // Calculate dynamic height: min 40px, max 128px based on percentage
+            const height = 40 + (percentage * 0.88); // 0.88 = (128-40)/100
+            
+            const isSelected = selectedTier === tier.name && selectedCustomerType === customerType;
+            const isOtherSelected = selectedTier && !isSelected;
+
             return (
-              <div key={tier.name} className="space-y-1">
-                <div className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2">
-                    <TierIcon className={`h-4 w-4 ${tier.textColor}`} />
-                    <span className="font-medium">{tier.name}</span>
-                    <Badge variant="outline" className={`${tier.textColor} text-xs`}>
-                      {count.toLocaleString()}
-                    </Badge>
-                  </div>
-                  <span className="text-muted-foreground">{percentage}%</span>
-                </div>
-                
-                <div className="flex justify-center">
-                  <div className={`${tier.width} transition-all duration-300`}>
+              <TooltipProvider key={tier.name}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
                     <div 
-                      className={`h-8 ${tier.color} rounded shadow-md flex items-center justify-center text-white text-sm font-medium`}
+                      className={`${tier.width} transition-all duration-300 cursor-pointer
+                        ${isSelected ? 'ring-2 ring-primary ring-offset-2 scale-105' : ''}
+                        ${isOtherSelected ? 'opacity-40' : 'hover:scale-105 hover:shadow-lg'}
+                      `}
+                      onClick={() => onTierClick?.(tier.name, customerType)}
+                      style={{ height: `${height}px` }}
                     >
-                      {percentage}%
+                      <div 
+                        className={`h-full ${tier.color} rounded shadow-md 
+                          flex flex-col items-center justify-center text-white
+                          font-medium relative overflow-hidden`}
+                      >
+                        <TierIcon className="h-5 w-5 mb-1" />
+                        <span className="text-xs">{tier.name}</span>
+                        <span className="text-lg font-bold">
+                          {Math.round(percentage)}%
+                        </span>
+                        <span className="text-xs opacity-90">
+                          {count.toLocaleString()}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="text-xs">
+                      Click to view {tier.name} customers
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             );
           })}
         </div>
@@ -142,8 +169,8 @@ export function DualPyramidVisualization() {
       </CardHeader>
       <CardContent>
         <div className="grid md:grid-cols-2 gap-8">
-          {renderPyramid(b2c, "B2C Customers", User)}
-          {renderPyramid(b2b, "B2B Organizations", Building2)}
+          {renderPyramid(b2c, "B2C Customers", User, 'B2C')}
+          {renderPyramid(b2b, "B2B Organizations", Building2, 'B2B')}
         </div>
       </CardContent>
     </Card>

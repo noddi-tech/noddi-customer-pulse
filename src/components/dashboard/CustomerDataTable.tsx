@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCustomers } from "@/hooks/segmentation";
 import {
@@ -31,19 +31,36 @@ type CustomerDataTableProps = {
     customer_type?: string;
     pyramid_tier?: string;
   };
+  pyramidTierFilter?: string;
+  customerTypeFilter?: string;
 };
 
-export function CustomerDataTable({ defaultFilters }: CustomerDataTableProps) {
+export function CustomerDataTable({ defaultFilters, pyramidTierFilter, customerTypeFilter }: CustomerDataTableProps) {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [lifecycle, setLifecycle] = useState(defaultFilters?.lifecycle || "");
   const [valueTier, setValueTier] = useState(defaultFilters?.value_tier || "");
   const [customerType, setCustomerType] = useState(defaultFilters?.customer_type || "");
+  const [pyramidTier, setPyramidTier] = useState(defaultFilters?.pyramid_tier || "");
+
+  // Update filters when props change
+  useEffect(() => {
+    if (pyramidTierFilter !== undefined) {
+      setPyramidTier(pyramidTierFilter);
+    }
+  }, [pyramidTierFilter]);
+
+  useEffect(() => {
+    if (customerTypeFilter !== undefined) {
+      setCustomerType(customerTypeFilter);
+    }
+  }, [customerTypeFilter]);
 
   const { data: customers, isLoading } = useCustomers({
     lifecycle: lifecycle || undefined,
     value_tier: valueTier || undefined,
     customer_type: customerType || undefined,
+    pyramid_tier: pyramidTier || undefined,
     search: search || undefined,
   });
 
@@ -111,6 +128,19 @@ export function CustomerDataTable({ defaultFilters }: CustomerDataTableProps) {
             <SelectItem value="High">High</SelectItem>
             <SelectItem value="Mid">Mid</SelectItem>
             <SelectItem value="Low">Low</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={pyramidTier || undefined} onValueChange={(val) => setPyramidTier(val === "all" ? "" : val)}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="All Pyramid Tiers" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Pyramid Tiers</SelectItem>
+            <SelectItem value="Champion">Champion</SelectItem>
+            <SelectItem value="Loyalist">Loyalist</SelectItem>
+            <SelectItem value="Engaged">Engaged</SelectItem>
+            <SelectItem value="Prospect">Prospect</SelectItem>
           </SelectContent>
         </Select>
 
