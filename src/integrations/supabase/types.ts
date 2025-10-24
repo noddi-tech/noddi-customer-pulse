@@ -743,11 +743,34 @@ export type Database = {
             }[]
           }
       get_product_line_stats: { Args: never; Returns: Json }
+      get_pyramid_by_customer_type: {
+        Args: never
+        Returns: {
+          champion_count: number
+          customer_segment: string
+          engaged_count: number
+          loyalist_count: number
+          prospect_count: number
+          total_count: number
+        }[]
+      }
       get_pyramid_tier_counts: {
         Args: never
         Returns: {
           count: number
           pyramid_tier_name: string
+        }[]
+      }
+      get_pyramid_tier_distribution: {
+        Args: never
+        Returns: {
+          customer_segment: string
+          dormant: number
+          tier1_champion: number
+          tier2_loyalist: number
+          tier3_engaged: number
+          tier4_prospect: number
+          total: number
         }[]
       }
       get_recent_cron_runs: {

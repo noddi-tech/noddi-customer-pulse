@@ -14,36 +14,33 @@ export function usePyramidByCustomerType() {
   return useQuery({
     queryKey: ["pyramid-by-customer-type"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("segments")
-        .select(`
-          pyramid_tier_name,
-          user_groups!inner(type)
-        `)
-        .not("pyramid_tier_name", "is", null)
-        .range(0, 9999);
+      // Use server-side aggregation - bypasses PostgREST row limits!
+      const { data, error } = await supabase.rpc('get_pyramid_by_customer_type');
 
       if (error) throw error;
 
-      // Separate B2C and B2B counts
       const b2cCounts = { Champion: 0, Loyalist: 0, Engaged: 0, Prospect: 0 };
       const b2bCounts = { Champion: 0, Loyalist: 0, Engaged: 0, Prospect: 0 };
+      let b2cTotal = 0;
+      let b2bTotal = 0;
 
-      data?.forEach((record: any) => {
-        const isB2B = record.user_groups.type === 'organization' || record.user_groups.type === 'group';
-        const tierName = record.pyramid_tier_name as keyof typeof b2cCounts;
+      data?.forEach((row: any) => {
+        const isB2B = row.customer_segment === 'B2B';
         
-        if (tierName && (tierName in b2cCounts)) {
-          if (isB2B) {
-            b2bCounts[tierName]++;
-          } else {
-            b2cCounts[tierName]++;
-          }
+        if (isB2B) {
+          b2bCounts.Champion = Number(row.champion_count);
+          b2bCounts.Loyalist = Number(row.loyalist_count);
+          b2bCounts.Engaged = Number(row.engaged_count);
+          b2bCounts.Prospect = Number(row.prospect_count);
+          b2bTotal = Number(row.total_count);
+        } else {
+          b2cCounts.Champion = Number(row.champion_count);
+          b2cCounts.Loyalist = Number(row.loyalist_count);
+          b2cCounts.Engaged = Number(row.engaged_count);
+          b2cCounts.Prospect = Number(row.prospect_count);
+          b2cTotal = Number(row.total_count);
         }
       });
-
-      const b2cTotal = Object.values(b2cCounts).reduce((sum, count) => sum + count, 0);
-      const b2bTotal = Object.values(b2bCounts).reduce((sum, count) => sum + count, 0);
 
       return {
         b2c: {

@@ -27,43 +27,24 @@ export function usePyramidTierDistribution() {
   return useQuery({
     queryKey: ["pyramid-tier-distribution"],
     queryFn: async () => {
-      // Get distribution by customer segment
-      const { data, error } = await supabase
-        .from("segments")
-        .select("customer_segment, pyramid_tier, pyramid_tier_name, dormant_segment")
-        .not("customer_segment", "is", null)
-        .range(0, 49999);
+      // Use server-side aggregation - bypasses PostgREST row limits!
+      const { data, error } = await supabase.rpc('get_pyramid_tier_distribution');
 
       if (error) throw error;
 
-      // Group by customer segment
-      const segmentMap = new Map<string, PyramidTierDistribution>();
-      
-      data?.forEach((row) => {
-        const segment = row.customer_segment!;
-        if (!segmentMap.has(segment)) {
-          segmentMap.set(segment, {
-            customer_segment: segment,
-            total: 0,
-            tier1_champion: 0,
-            tier2_loyalist: 0,
-            tier3_engaged: 0,
-            tier4_prospect: 0,
-            dormant: 0,
-          });
-        }
-        
-        const dist = segmentMap.get(segment)!;
-        dist.total++;
-        
-        if (row.pyramid_tier === 1) dist.tier1_champion++;
-        else if (row.pyramid_tier === 2) dist.tier2_loyalist++;
-        else if (row.pyramid_tier === 3) dist.tier3_engaged++;
-        else if (row.pyramid_tier === 4) dist.tier4_prospect++;
-        else if (row.dormant_segment) dist.dormant++;
-      });
+      // Transform to expected format
+      const distribution: PyramidTierDistribution[] = data?.map((row: any) => ({
+        customer_segment: row.customer_segment,
+        total: Number(row.total),
+        tier1_champion: Number(row.tier1_champion),
+        tier2_loyalist: Number(row.tier2_loyalist),
+        tier3_engaged: Number(row.tier3_engaged),
+        tier4_prospect: Number(row.tier4_prospect),
+        dormant: Number(row.dormant),
+      })) || [];
 
-      return Array.from(segmentMap.values()).sort((a, b) => {
+      // Sort B2C first, then B2B
+      return distribution.sort((a, b) => {
         const order = { 'B2C': 1, 'B2B': 2 };
         return (order[a.customer_segment as keyof typeof order] || 99) - 
                (order[b.customer_segment as keyof typeof order] || 99);
