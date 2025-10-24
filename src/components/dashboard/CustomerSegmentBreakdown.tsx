@@ -27,23 +27,11 @@ export function CustomerSegmentBreakdown() {
       bgColor: "bg-blue-100 dark:bg-blue-950/30",
       description: "Individual consumers",
     },
-    'SMB': {
+    'B2B': {
       icon: Building2,
       color: "text-green-600 dark:text-green-400",
       bgColor: "bg-green-100 dark:bg-green-950/30",
-      description: "Small/medium business (1-19 cars)",
-    },
-    'Large': {
-      icon: Building,
-      color: "text-purple-600 dark:text-purple-400",
-      bgColor: "bg-purple-100 dark:bg-purple-950/30",
-      description: "Large business (20-49 cars)",
-    },
-    'Enterprise': {
-      icon: Landmark,
-      color: "text-orange-600 dark:text-orange-400",
-      bgColor: "bg-orange-100 dark:bg-orange-950/30",
-      description: "Enterprise (50+ cars)",
+      description: "Business customers (organizations and groups)",
     },
   };
 

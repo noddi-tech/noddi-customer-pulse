@@ -32,18 +32,12 @@ type Thresholds = {
   value_mid_percentile: number;
 };
 
-// Helper function to determine customer segment (B2C, SMB, Large, Enterprise)
+// Helper function to determine customer segment (B2C vs B2B)
 function determineCustomerSegment(userGroupType: string, orgId: number | null, fleetSize: number): string {
-  // Use fleet size as primary indicator (most reliable)
-  if (fleetSize >= 50) return 'Enterprise';
-  if (fleetSize >= 20) return 'Large';
-  if (fleetSize >= 2) return 'SMB';
-  
-  // Fallback: if type is business but fleet=1, classify as SMB
+  // Simple B2C/B2B split based on user group type
   if (userGroupType === 'organization' || userGroupType === 'group') {
-    return 'SMB';
+    return 'B2B';
   }
-  
   return 'B2C';
 }
 

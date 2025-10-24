@@ -32,7 +32,7 @@ export function usePyramidTierDistribution() {
         .from("segments")
         .select("customer_segment, pyramid_tier, pyramid_tier_name, dormant_segment")
         .not("customer_segment", "is", null)
-        .limit(50000);
+        .range(0, 49999);
 
       if (error) throw error;
 
@@ -64,7 +64,7 @@ export function usePyramidTierDistribution() {
       });
 
       return Array.from(segmentMap.values()).sort((a, b) => {
-        const order = { 'B2C': 1, 'SMB': 2, 'Large': 3, 'Enterprise': 4 };
+        const order = { 'B2C': 1, 'B2B': 2 };
         return (order[a.customer_segment as keyof typeof order] || 99) - 
                (order[b.customer_segment as keyof typeof order] || 99);
       });
