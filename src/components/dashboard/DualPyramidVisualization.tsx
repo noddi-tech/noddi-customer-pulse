@@ -89,6 +89,7 @@ export function DualPyramidVisualization({ selectedTier, selectedCustomerType, o
 
             // Calculate dynamic height: min 40px, max 128px based on percentage
             const height = 40 + (percentage * 0.88); // 0.88 = (128-40)/100
+            const layoutMode = height >= 70 ? 'tall' : height >= 50 ? 'medium' : 'compact';
             
             const isSelected = selectedTier === tier.name && selectedCustomerType === customerType;
             const isOtherSelected = selectedTier && !isSelected;
@@ -108,23 +109,49 @@ export function DualPyramidVisualization({ selectedTier, selectedCustomerType, o
                       <div 
                         className={`h-full ${tier.color} rounded shadow-md 
                           flex flex-col items-center justify-center text-white
-                          font-medium relative overflow-hidden`}
+                          font-medium relative overflow-hidden ${layoutMode === 'compact' ? 'px-3' : 'px-2'}`}
                       >
-                        <TierIcon className="h-5 w-5 mb-1" />
-                        <span className="text-xs">{tier.name}</span>
-                        <span className="text-lg font-bold">
-                          {Math.round(percentage)}%
-                        </span>
-                        <span className="text-xs opacity-90">
-                          {count.toLocaleString()}
-                        </span>
+                        {layoutMode === 'tall' && (
+                          <>
+                            <TierIcon className="h-5 w-5 mb-1" />
+                            <span className="text-xs">{tier.name}</span>
+                            <span className="text-lg font-bold">
+                              {Math.round(percentage)}%
+                            </span>
+                            <span className="text-xs opacity-90">
+                              {count.toLocaleString()}
+                            </span>
+                          </>
+                        )}
+                        
+                        {layoutMode === 'medium' && (
+                          <>
+                            <TierIcon className="h-4 w-4" />
+                            <span className="text-[10px] leading-tight">{tier.name}</span>
+                            <span className="text-base font-bold">
+                              {Math.round(percentage)}%
+                            </span>
+                            <span className="text-[10px] opacity-90">
+                              {count.toLocaleString()}
+                            </span>
+                          </>
+                        )}
+                        
+                        {layoutMode === 'compact' && (
+                          <div className="flex items-center gap-1">
+                            <span className="text-sm font-bold">{Math.round(percentage)}%</span>
+                            <span className="text-[10px] opacity-90">({count})</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </TooltipTrigger>
                   <TooltipContent>
+                    <p className="text-xs font-semibold">{tier.name}</p>
                     <p className="text-xs">
-                      Click to view {tier.name} customers
+                      {percentage.toFixed(1)}% ({count.toLocaleString()} customers)
                     </p>
+                    <p className="text-xs opacity-70 mt-1">Click to filter</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
