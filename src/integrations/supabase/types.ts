@@ -683,6 +683,20 @@ export type Database = {
           period_order: number
         }[]
       }
+      get_cron_jobs: {
+        Args: never
+        Returns: {
+          active: boolean
+          command: string
+          database: string
+          jobid: number
+          jobname: string
+          nodename: string
+          nodeport: number
+          schedule: string
+          username: string
+        }[]
+      }
       get_customer_segment_counts: {
         Args: never
         Returns: {
@@ -727,6 +741,21 @@ export type Database = {
         Returns: {
           count: number
           pyramid_tier_name: string
+        }[]
+      }
+      get_recent_cron_runs: {
+        Args: { limit_count?: number }
+        Returns: {
+          command: string
+          database: string
+          end_time: string
+          job_pid: number
+          jobid: number
+          return_message: string
+          runid: number
+          start_time: string
+          status: string
+          username: string
         }[]
       }
       get_segment_counts: { Args: never; Returns: Json }
