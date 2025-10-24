@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { usePyramidValidation, useSegmentExamples } from "@/hooks/pyramidValidation";
 import { useComputeSegments } from "@/hooks/edgeFunctions";
+import { useQueryClient } from "@tanstack/react-query";
 import { 
   CheckCircle2, 
   AlertTriangle, 
@@ -20,14 +21,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 export function PyramidTestPanel() {
-  // Auto-run validation on mount and every 30 seconds
+  const queryClient = useQueryClient();
   const { data: validation, isLoading, refetch, isRefetching } = usePyramidValidation();
   const { data: examples, isLoading: examplesLoading } = useSegmentExamples();
   const computeMutation = useComputeSegments();
 
   const handleRecompute = async () => {
     await computeMutation.mutateAsync({});
-    setTimeout(() => refetch(), 2000);
+    // Force cache invalidation to show fresh data immediately
+    queryClient.invalidateQueries({ queryKey: ['pyramid-validation'] });
+    queryClient.invalidateQueries({ queryKey: ['segment-examples'] });
   };
 
   if (isLoading) {

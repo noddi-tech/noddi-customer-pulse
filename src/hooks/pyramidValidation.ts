@@ -166,7 +166,8 @@ export function usePyramidValidation() {
         },
       };
     },
-    staleTime: 30 * 1000, // 30 seconds (faster cache refresh)
+    staleTime: 0, // Always fetch fresh data on refetch
+    refetchOnWindowFocus: false, // Prevent unexpected refetches
   });
 }
 
@@ -207,6 +208,7 @@ export function useSegmentExamples() {
 
       return examples;
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: 0, // Always fetch fresh data on refetch
+    refetchOnWindowFocus: false,
   });
 }
