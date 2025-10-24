@@ -18,7 +18,7 @@ export function usePyramidByCustomerType() {
         .from("segments")
         .select(`
           pyramid_tier_name,
-          user_groups!inner(org_id)
+          user_groups!inner(type)
         `)
         .not("pyramid_tier_name", "is", null);
 
@@ -29,7 +29,7 @@ export function usePyramidByCustomerType() {
       const b2bCounts = { Champion: 0, Loyalist: 0, Engaged: 0, Prospect: 0 };
 
       data?.forEach((record: any) => {
-        const isB2B = record.user_groups.org_id !== null;
+        const isB2B = record.user_groups.type === 'organization' || record.user_groups.type === 'group';
         const tierName = record.pyramid_tier_name as keyof typeof b2cCounts;
         
         if (tierName && (tierName in b2cCounts)) {
